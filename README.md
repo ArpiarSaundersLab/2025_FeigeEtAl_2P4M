@@ -1,4 +1,4 @@
-#2025_FeigeEtAl_2P4M
+# 2025_FeigeEtAl_2P4M
 
 The included directories contain only R-based analysis scripts.
 
