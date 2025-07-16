@@ -1,0 +1,178 @@
+---
+title: "Microglia Pathway Analyses"
+author: "Greg"
+date: '2024-12-10'
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library('gprofiler2')
+library('ReactomePA')
+library('org.Hs.eg.db')
+library('clusterProfiler')
+library('enrichplot')
+# library(ggtree)
+# library(scales)
+```
+
+#0. Load Data
+```{r load DE microglia results, echo = F}
+main.path <- "~/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/"
+
+ni.v.2p4m05 <- read_rds(paste(main.path,'Data/de/mg_ni_vs_2p4m05_de.RDS', sep = ''))
+ni.v.tha05 <- read_rds(paste(main.path,'Data/de/mg_ni_vs_tha05_de.RDS', sep = ''))
+ni.v.tha5 <- read_rds(paste(main.path,'Data/de/mg_ni_vs_tha5_de.RDS', sep = ''))
+
+```
+
+#1. GO Analysis
+```{r}
+
+# Select dataframe to use
+DE.genes <- data.frame(ni.v.2p4m05)
+
+# Set cutoffs for DE genes, upper and lower 5% and adj_pval > 0.05 DEs
+custom_fc_cutoff <- 0.2
+p_val_cutoff <- 0.01 
+
+up_de <- subset(DE.genes, avg_logFC > 0)
+down_de <- subset(DE.genes, avg_logFC < 0)
+    
+up_quant <- quantile(up_de$avg_logFC, c(custom_fc_cutoff,1 - custom_fc_cutoff))
+down_quant <- quantile(down_de$avg_logFC, c(custom_fc_cutoff,1 - custom_fc_cutoff))
+
+    DE.genes$reg = ""
+    DE.genes$reg[DE.genes$p_val_adj < p_val_cutoff & abs(DE.genes$avg_logFC) > up_quant[[2]] & DE.genes$avg_logFC > 0] <- "UP"
+    DE.genes$reg[DE.genes$p_val_adj < p_val_cutoff & DE.genes$avg_logFC > down_quant[[1]] & DE.genes$avg_logFC < 0] <- "DOWN"
+    DE.genes$name = DE.genes$gene
+    DE.genes$name[DE.genes$reg == ""] <- ""
+
+# feeds DE into gprofiler to look at pathway enrichments
+require('gprofiler2')
+de.genes.down <- subset(DE.genes, reg == 'DOWN')
+de.genes.up <- subset(DE.genes, reg == 'UP')
+
+differentially_expressed_genes_up <- de.genes.up$gene
+differentially_expressed_genes_down <- de.genes.down$gene
+
+degs <- c(differentially_expressed_genes_down,differentially_expressed_genes_up)
+
+length(degs)
+```
+
+#2. REACTome Analysis
+```{r, fig.height = 7, fig.width = 12}
+# Subset the top N significant pathways, adjust N as per your needs
+path.num <- 15
+p_value <- 0.05
+
+# gprofiler Gost analysis
+gostres <- gost(query = degs, 
+                organism = "hsapiens", ordered_query = FALSE, 
+                multi_query = FALSE, significant = TRUE, exclude_iea = FALSE, 
+                measure_underrepresentation = FALSE, evcodes = TRUE, 
+                user_threshold = 0.05, correction_method = "g_SCS", 
+                domain_scope = "annotated", custom_bg = NULL, 
+                numeric_ns = "", sources = NULL, as_short_link = FALSE, highlight = TRUE)
+
+# pathways <- rownames(table(gostres.up$result$source))
+pathways <- c('GO:BP', 'KEGG', 'REAC')
+
+for (x in 1:length(pathways)) {
+
+# subset out each type of pathway
+gostre.plot <- subset(gostres$result, source == pathways[[x]])
+
+# find top pathways
+top_pathways <- head(gostre.plot[order(gostre.plot$p_value),] , path.num)
+    
+# generate -logpvalues - downregulated pathways are adjusted to negative logp_vals for plotting purposes only
+top_pathways$logp_val <- -log10(top_pathways$p_value)
+
+# Create a bar plot using ggplot2
+
+max_label_length <- 35  # Set the maximum number of characters for the labels
+
+# Wrap the labels using str_wrap
+top_pathways$term_name <- str_wrap(top_pathways$term_name, width = max_label_length)
+        
+enrich.plot <- ggplot(top_pathways, aes(x = logp_val, y = reorder(term_name, logp_val))) +
+              geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+              labs(x = "-log10(p-value)", y = "Pathway Name", title = paste(pathways[[x]],"Enriched Pathways", sep = ' ')) +
+              theme(axis.text.x = element_text(hjust = 1, size = 20),
+                    axis.text.y = element_text(size = 15))
+    
+    options(repr.plot.width = 13, repr.plot.height = 15)
+    print(enrich.plot)
+    
+    # generates individual plots
+    if (x == 1) {
+        
+        enrich.plotGOBP <- enrich.plot
+        
+        } else {
+        
+            assign(paste0('enrich.plot', pathways[[x]]), enrich.plot)
+        }
+    }
+
+```
+
+#3. Reactome Network Plot
+```{r,fig.height = 10, fig.width = 8}
+
+## Uses ReactomePA to look at REACTOME based functional enrichment
+degs.id <- bitr(degs, fromType = "ALIAS", toType = "ENTREZID", OrgDb = "org.Hs.eg.db")
+
+reactPA <- enrichPathway(gene = degs.id$ENTREZID,
+                   pvalueCutoff = 0.05, 
+                   readable = T)
+
+reactPA@result$log.p.adj <- -log(reactPA@result$p.adjust)
+
+options(repr.plot.width = 8, repr.plot.height = 10)
+
+dot.reactome <- enrichplot::dotplot(reactPA, x = 'log.p.adj', size = 'GeneRatio', showCategory = 15)
+dot.reactome + theme(axis.title.x = element_text(size = 20),               # X-axis label size
+                     axis.title.y = element_text(size = 20),               # Y-axis label size
+                     axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                     axis.text.y = element_text(size = 15))
+
+edo <- pairwise_termsim(reactPA)
+
+options(repr.plot.width = 12, repr.plot.height = 12)
+
+react.path.network <- emapplot(edo, cex_category = 2, 
+                                    layout = 'fr', 
+                                    repel = TRUE,
+                                    group_legend = TRUE,
+                                    cex_label_category = 0.8)
+react.path.network
+
+#1. Pairwise clustering of REACTOME categories
+edo <- pairwise_termsim(reactPA, showCategory = 15)
+
+hiearchy_text <- treeplot(edo,showCategory = 15)
+hiearchy_tree <- treeplot(edo,showCategory = 15)
+
+
+hiearchy_text + geom_tree(size=1) +
+                scale_x_continuous(c(0, 3)) +
+                geom_tiplab(alpha = 0, size = 5)
+
+hiearchy_tree + geom_tree(size=1) +
+                geom_tiplab(alpha = 0.1, size = 2)
+                scale_size_continuous(range = c(0,1))
+
+```
+
+#4. Save REACTOME Plots
+```{r}
+ggsave("/Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Plots/2_microglia_fc_reactome/reactome_ni_vs_tha5.png", plot = dot.reactome, width = 7, height= 9, units='in', dpi=600, device = "png")
+
+ggsave("/Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Plots/2_microglia_fc_reactome/hierarchy_tree.png", plot = hiearchy_tree, width = 10, height= 3, units='in', dpi=600, device = "png")
+
+ggsave("/Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Plots/2_microglia_fc_reactome/hierarchy_text.png", plot = hiearchy_text, width = 15, height= 4.5, units='in', dpi=600, device = "png")
+
+```

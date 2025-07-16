@@ -1,0 +1,646 @@
+---
+title: "Fold-Change Comparisons in Microglia across Experimental Conditions"
+author: "Arpy"
+date: '2024-11-12'
+output: html_document
+---
+
+```{r load libraries}
+library(tidyverse)
+library(Seurat)
+library(Libra)
+library(clusterProfiler)
+library(enrichplot)
+library(smplot2)
+library(ReactomePA)
+# library(ggVennDiagram)
+# library(ggtree)
+# library(scales)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+```
+
+#0. Load Microglia DEs
+```{r load data, echo = F}
+main.path <- "~/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/"
+
+tha.celltype.infections.summary <- read_rds(tha.celltype.infections.summary.path)
+tha.seurat                      <- read_rds(tha.seurat.path)
+tha.seurat_RC1E5                <- read_rds(tha.seurat_RC1E5.path)
+
+ni.v.2p4m05       <- read_rds(paste(main.path,'Data/de/mg_ni_vs_2p4m05_de.RDS', sep = ''))
+ni.v.tha05        <- read_rds(paste(main.path,'Data/de/mg_ni_vs_tha05_de.RDS', sep = ''))
+ni.v.tha5         <- read_rds(paste(main.path,'Data/de/mg_ni_vs_tha5_de.RDS', sep = ''))
+tha2p4m05.v.tha05 <- read_rds(paste(main.path,'Data/de/mg_tha2p4m05_vs_tha05_de.RDS', sep = ''))
+
+# Add variable denoting comparison
+ni.v.2p4m05$de_category <- "2p4m05"
+ni.v.tha05$de_category  <- "tha05"
+ni.v.tha5$de_category   <- "tha5"
+
+ni.v.2p4m05 <- ni.v.2p4m05[ , !(names(ni.v.2p4m05) %in% names(ni.v.2p4m05)[4:7])]
+ni.v.tha05 <- ni.v.tha05[ , !(names(ni.v.tha05) %in% names(ni.v.tha05)[4:7])]
+ni.v.tha5 <- ni.v.tha5[ , !(names(ni.v.tha5) %in% names(ni.v.tha5)[4:7])]
+
+# Binds two groups you want to compare in dot plot
+tha2p4m05.v.tha05 <- rbind(ni.v.2p4m05, ni.v.tha05)
+tha05.v.tha5 <- rbind(ni.v.tha05, ni.v.tha5)
+tha2p4m05.v.tha5 <- rbind(ni.v.2p4m05, ni.v.tha5)
+
+```
+
+#1. Preprocess
+```{r preprocess, echo=FALSE}
+tha.summary_log10 <-
+  tha.celltype.infections.summary %>%
+  mutate(
+    lViralLoad = log10(ViralLoad),
+    lTotalHost = log10(TotalHost),
+    lTotalViral = log10(TotalViral),
+    lTotalUMIs = log10(TotalUMIs),
+    )
+
+tha.genome <- c('Tha_N', 'Tha_P', 'Tha_M', 'Tha_G', 'Tha_L')
+
+```
+
+#2. Fold-Change Magnitude Scatter Plots (2p4m05 vs Tha05)
+# Since volcano plots have varying FC cutoffs, needs to be adapted to match for FC comparisons:
+
+NI vs Tha05
+[1] "up_quant: 0.244282375134593"
+[1] "down_quant: -0.292996707868235"
+
+NI vs 2p4m05
+[1] "up_quant: 0.370312754414615"
+[1] "down_quant: -0.318213778972202"
+
+NI vs. Tha5
+[1] "up_quant: 0.427005931528228"
+[1] "down_quant: -0.387270845383672"
+
+2p4m05 vs Tha05
+1] "up_quant: 0.365808488098499"
+[1] "down_quant: -0.298198983651189"
+
+#3. Significant Gene Counts
+```{r}
+p_adj_thresh = 1e-02
+  
+ni.v.tha05.counts        <- subset(ni.v.tha05, (avg_logFC < -0.2929 | avg_logFC > 0.244) & p_val_adj < p_adj_thresh)
+ni.v.2p4m05.counts       <- subset(ni.v.2p4m05, (avg_logFC < -0.3182 | avg_logFC > 0.3703) & p_val_adj < p_adj_thresh)
+ni.v.tha5.counts         <- subset(ni.v.tha5, (avg_logFC < -0.3872 | avg_logFC > 0.4270) & p_val_adj < p_adj_thresh)
+tha2p4m05.v.tha05.counts <- subset(tha2p4m05.v.tha05, (avg_logFC < --0.2981 | avg_logFC > 0.3658) & p_val_adj < p_adj_thresh)
+
+```
+
+#4. Fold-Change Magnitude Scatter Plots (2p4m05 vs Tha05)
+```{r FC Magnitude Scatter Plots, echo=FALSE}
+
+require(pacviz)
+
+microglia_fc_comparison.plot.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Plots/1_microglia_fc_comparison/"
+
+ds <- tha2p4m05.v.tha05
+mag_plots <- function(ds)
+  
+  {
+  
+  threshold <- 1e-02
+  
+  genes_to_include <- filter(ds, p_val_adj < threshold,
+    cell_type %in% c('Microglia'))$gene %>% unique()
+  
+  genelevels <- FetchData(tha.seurat, genes_to_include) %>%
+    merge(tha.summary_log10, by.x=0, by.y='CBC') %>%
+    group_by(CoarseCellType, Experiment) %>%
+    summarise(across(all_of(genes_to_include), mean), .groups="drop") %>%
+    filter(CoarseCellType %in% c('Microglia')) %>%
+    unite(cond_exp, CoarseCellType, Experiment) %>%
+    {
+      df_t <- dplyr::select(., -cond_exp) %>% data.table::transpose()
+      colnames(df_t) <- .$cond_exp
+      df_t$gene <- colnames(.)[-1]
+      as_tibble(df_t)
+    }
+  
+  temp <- filter(ds, gene %in% genes_to_include, cell_type %in% c('Microglia')) %>%
+    pivot_wider(names_from=de_category, values_from=c(avg_logFC, p_val, p_val_adj)) %>%
+    merge( rownames_to_column(tha.seurat@assays$RNA@meta.features, var = 'gene'), by = 'gene' ) %>%
+    mutate(
+      sig = case_when(
+        (p_val_adj_2p4m05 < threshold) & (p_val_adj_tha05 < threshold) ~ 'Both',
+        (p_val_adj_2p4m05 < threshold) ~ '2p4m05',
+        (p_val_adj_tha05 < threshold) ~ 'tha05',
+        TRUE ~ 'none'
+      ),
+      sig = factor(sig, levels = c('2p4m05', 'tha05', 'Both'))
+    ) %>%
+    merge(
+      genelevels, by = 'gene'
+    ) %>%
+    mutate(size_n = Microglia_NI_0 - Microglia_NI_0) %>%
+    mutate(size_n = size_n + abs(min(size_n))) %>%
+    arrange(sig)
+  # } -> temp.tha
+  labelgenes <- temp %>%
+    filter(
+      sig != '2p4m05'
+    ) %>%
+    bind_rows(
+      filter(temp, avg_logFC_2p4m05 < -0.31),
+      filter(temp, avg_logFC_2p4m05 > 0.37),
+      filter(temp, avg_logFC_tha05 > 0.244),
+      filter(temp, avg_logFC_tha05 < -0.292),   
+    )
+# fix aspect ratio with same xy labels
+ test_plot<-ggplot(temp, aes(
+    avg_logFC_2p4m05, 
+    avg_logFC_tha05,
+    color = sig,
+    size = linMap(Microglia_NI_0, 0.0001, 4.41),
+    label=if_else(
+      gene %in% labelgenes$gene,
+      gene, NA
+    )))+
+    geom_point(alpha = 0.5)+
+    geom_point(alpha = 1, shape = 21)+
+    scale_color_manual(values = c(Tha2P4M_color, Tha_color, "#f27292"))+
+    theme_bw()+
+    theme(
+      axis.title=element_blank(),
+      legend.position='none'
+    )+
+     scale_x_continuous(limits = c(-2.5, 4.5))+
+     scale_y_continuous(limits = c(-2.5, 4.5))+
+     scale_size(range = c(0.2, 5))+
+    geom_vline(xintercept=0, linetype=2)+
+    geom_hline(yintercept=0, linetype=2)+
+    geom_abline(slope=1, intercept=0, linetype=3)+
+    labs(x = 'Avg Log_2 FC 2p4m05',
+      y = 'Avg Log_2 FC Tha05',
+      size = 'Microglia\nBase\nExpr.',
+      color = 'Meets Stat.\nSig. In')
+  }
+
+DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha05.plot <- mag_plots(ds) #fig.3.d.logFC
+
+#assign text labels to gene points
+
+test_lab <- c('ANKRD1', 'CXCL9','IFIT3','OASL','IFIT2','STAP1','RSAD2','CXCL10','IFIT1','ISG20')
+
+labels <- ggrepel::geom_text_repel(size = 3, min.segment.length=0.1, force=2, max.overlaps=80, aes(label = ifelse(temp$gene %in% test_lab, temp$gene, NA)))
+
+DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha05.label.plot <-  test_plot + labels +
+                                                                    theme(axis.title.x = element_text(face="bold", size = 25),               # X-axis label size
+                                                                    axis.title.y = element_text(face="bold", size = 25),               # Y-axis label size
+                                                                    axis.text.x = element_text(size = 25),                # X-axis tick mark size
+                                                                    axis.text.y = element_text(size = 25))
+
+
+# Save
+# ggsave(paste0(microglia_fc_comparison.plot.path, "DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha05.plot_TEST.png"),       plot = DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha05.plot, width = 6, height= 5, units='in', dpi=600, device = "png")
+# ggsave(paste0(microglia_fc_comparison.plot.path, "DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha05.label.plot.png"), plot = DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha05.label.plot, width = 6, height= 5, units='in', dpi=600, device = "png")
+
+```
+
+#6. Fold-Change Magnitude Scatter Plots (Tha05 vs Tha5)
+```{r FC Magnitude Scatter Plots, echo=FALSE}
+
+ds <- tha05.v.tha5
+mag_plots <- function(ds)
+  
+  {
+  
+  threshold <- 1e-02
+  
+  genes_to_include <- filter(ds, p_val_adj < threshold,
+    cell_type %in% c('Microglia'))$gene %>% unique()
+  
+  genelevels <- FetchData(tha.seurat, genes_to_include) %>%
+    merge(tha.summary_log10, by.x=0, by.y='CBC') %>%
+    group_by(CoarseCellType, Experiment) %>%
+    summarise(across(all_of(genes_to_include), mean), .groups="drop") %>%
+    filter(CoarseCellType %in% c('Microglia')) %>%
+    unite(cond_exp, CoarseCellType, Experiment) %>%
+    {
+      df_t <- dplyr::select(., -cond_exp) %>% data.table::transpose()
+      colnames(df_t) <- .$cond_exp
+      df_t$gene <- colnames(.)[-1]
+      as_tibble(df_t)
+    }
+  
+  temp <- filter(ds, gene %in% genes_to_include, cell_type %in% c('Microglia')) %>%
+    pivot_wider(names_from=de_category, values_from=c(avg_logFC, p_val, p_val_adj)) %>%
+    merge( rownames_to_column(tha.seurat@assays$RNA@meta.features, var = 'gene'), by = 'gene' ) %>%
+    mutate(
+      sig = case_when(
+        (p_val_adj_tha05 < threshold) & (p_val_adj_tha5 < threshold) ~ 'Both',
+        (p_val_adj_tha05 < threshold) ~ 'tha05',
+        (p_val_adj_tha5 < threshold) ~ 'tha5',
+        TRUE ~ 'none'
+      ),
+      sig = factor(sig, levels = c('tha05', 'tha5', 'Both'))
+    ) %>%
+    merge(
+      genelevels, by = 'gene'
+    ) %>%
+    mutate(size_n = Microglia_NI_0 - Microglia_NI_0) %>%
+    mutate(size_n = size_n + abs(min(size_n))) %>%
+    arrange(sig)
+  # } -> temp.tha
+  labelgenes <- temp %>%
+    filter(
+      sig != 'tha05'
+    ) %>%
+    bind_rows(
+      filter(temp, avg_logFC_tha05 < -0.292),
+      filter(temp, avg_logFC_tha05 > 0.2442),
+      filter(temp, avg_logFC_tha5 < -0.387),
+      filter(temp, avg_logFC_tha5 > 0.427),
+    )
+# fix aspect ratio with same xy labels
+ test_plot<-ggplot(temp, aes(
+    avg_logFC_tha05,
+    avg_logFC_tha5,
+    color = sig,
+    size = linMap(Microglia_NI_0, 0.0001, 4.41),
+    label=if_else(
+      gene %in% labelgenes$gene,
+      gene, NA
+    )))+
+    geom_point(alpha = 0.5)+
+    geom_point(alpha = 1, shape = 21)+
+    scale_color_manual(values = c(Tha_color, Tha5_color, "#f27292"))+
+    theme_bw()+
+    theme(
+      # axis.title=element_blank(),
+      # legend.position='none'
+    )+
+     scale_x_continuous(limits = c(-2.5, 4.5))+
+     scale_y_continuous(limits = c(-2.5, 4.5))+
+   #  scale_size(range = c(0.2, 5))+
+    geom_vline(xintercept=0, linetype=2)+
+    geom_hline(yintercept=0, linetype=2)+    
+    geom_abline(slope=1, intercept=0, linetype=3)+
+    labs(x = 'Avg Log_2 FC Tha05',
+      y = 'Avg Log_2 FC Tha5',
+      size = 'Microglia\nBase\nExpr.',
+      color = 'Meets Stat.\nSig. In')
+  }
+
+
+DE_Log2FoldChangeScatter_Microglia_tha05.v.tha5.plot <- mag_plots(ds) #fig.3.d.logFC
+
+# assign text labels to gene points and plots single plot
+labels <- ggrepel::geom_text_repel(size = 3, min.segment.length=0.1, force=2, max.overlaps=80)
+
+DE_Log2FoldChangeScatter_Microglia_tha05.v.tha5.label.plot <- DE_Log2FoldChangeScatter_Microglia_tha05.v.tha5.plot + labels +
+                                                                theme(axis.title.x = element_text(face="bold", size = 25),               # X-axis label size
+                                                                axis.title.y = element_text(face="bold", size = 25),               # Y-axis label size
+                                                                axis.text.x = element_text(size = 25),                # X-axis tick mark size
+                                                                axis.text.y = element_text(size = 25))
+
+# Save
+ggsave(paste0(microglia_fc_comparison.plot.path, "DE_Log2FoldChangeScatter_Microglia_tha05.v.tha5.plot.png"),       plot = DE_Log2FoldChangeScatter_Microglia_tha05.v.tha5.plot,       width = 6, height= 5, units='in', dpi=600, device = "png")
+ggsave(paste0(microglia_fc_comparison.plot.path, "DE_Log2FoldChangeScatter_Microglia_tha05.v.tha5.label.plot.png"), plot = DE_Log2FoldChangeScatter_Microglia_tha05.v.tha5.label.plot, width = 6, height= 5, units='in', dpi=600, device = "png")
+
+```
+
+#6. Fold-Change Magnitude Scatter Plots (2p4m05 vs Tha5)
+```{r FC Magnitude Scatter Plots, echo=FALSE}
+ds <- tha2p4m05.v.tha5
+mag_plots <- function(ds)
+  
+  {
+  
+  threshold <- 1e-02
+  
+  genes_to_include <- filter(ds, p_val_adj < threshold,
+    cell_type %in% c('Microglia'))$gene %>% unique()
+  
+  genelevels <- FetchData(tha.seurat, genes_to_include) %>%
+    merge(tha.summary_log10, by.x=0, by.y='CBC') %>%
+    group_by(CoarseCellType, Experiment) %>%
+    summarise(across(all_of(genes_to_include), mean), .groups="drop") %>%
+    filter(CoarseCellType %in% c('Microglia')) %>%
+    unite(cond_exp, CoarseCellType, Experiment) %>%
+    {
+      df_t <- dplyr::select(., -cond_exp) %>% data.table::transpose()
+      colnames(df_t) <- .$cond_exp
+      df_t$gene <- colnames(.)[-1]
+      as_tibble(df_t)
+    }
+  
+  temp <- filter(ds, gene %in% genes_to_include, cell_type %in% c('Microglia')) %>%
+    pivot_wider(names_from=de_category, values_from=c(avg_logFC, p_val, p_val_adj)) %>%
+    merge( rownames_to_column(tha.seurat@assays$RNA@meta.features, var = 'gene'), by = 'gene' ) %>%
+    mutate(
+      sig = case_when(
+        (p_val_adj_2p4m05 < threshold) & (p_val_adj_tha5 < threshold) ~ 'Both',
+        (p_val_adj_2p4m05 < threshold) ~ '2p4m05',
+        (p_val_adj_tha5 < threshold) ~ 'tha5',
+        TRUE ~ 'none'
+      ),
+      sig = factor(sig, levels = c('2p4m05', 'tha5', 'Both'))
+    ) %>%
+    merge(
+      genelevels, by = 'gene'
+    ) %>%
+    mutate(size_n = Microglia_NI_0 - Microglia_NI_0) %>%
+    mutate(size_n = size_n + abs(min(size_n))) %>%
+    arrange(sig)
+  # } -> temp.tha
+  labelgenes <- temp %>%
+    filter(
+      sig != 'tha5'
+    ) %>%
+    bind_rows(
+      filter(temp, avg_logFC_2p4m05 < -0.31),
+      filter(temp, avg_logFC_2p4m05 > 0.37),
+      filter(temp, avg_logFC_tha5 < -0.387),
+      filter(temp, avg_logFC_tha5 > 0.427)
+    )
+# fix aspect ratio with same xy labels
+ test_plot<-ggplot(temp, aes(
+    avg_logFC_2p4m05,
+    avg_logFC_tha5,
+    color = sig,
+    size = linMap(Microglia_NI_0, 0.0001, 4.41),
+    label=if_else(
+      gene %in% labelgenes$gene,
+      gene, NA
+    )))+
+    geom_point(alpha = 0.5)+
+    geom_point(alpha = 1, shape = 21)+
+    scale_color_manual(values = c(Tha2P4M_color, Tha5_color, "#f27292"))+
+    theme_bw()+
+    theme(
+      # axis.title=element_blank(),
+      # legend.position='none'
+    )+
+     scale_x_continuous(limits = c(-2.5, 4.5))+
+     scale_y_continuous(limits = c(-2.5, 4.5))+
+   #  scale_size(range = c(0.2, 5))+
+    geom_vline(xintercept=0, linetype=2)+
+    geom_hline(yintercept=0, linetype=2)+
+    geom_abline(slope=1, intercept=0, linetype=3)+
+    labs(x = 'Avg Log_2 FC 2p4m05',
+      y = 'Avg Log_2 FC Tha5',
+      size = 'Microglia\nBase\nExpr.',
+      color = 'Meets Stat.\nSig. In')
+  }
+
+DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha5.plot <- mag_plots(ds) #fig.3.d.logFC
+
+# assign text labels to gene points and plots single plot
+
+test_lab <- c('ANKRD1', 'CXCL9','IFIT3','OASL','IFIT2','STAP1','RSAD2','CXCL10','IFIT1','ISG20')
+
+labels <- ggrepel::geom_text_repel(size = 3, min.segment.length=0.1, force=2, max.overlaps=80, aes(label = ifelse(temp$gene %in% test_lab, temp$gene, NA)))
+
+DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha5.label.plot <- DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha5.plot + labels +
+                                                                      theme(axis.title.x = element_text(face="bold", size = 25),               # X-axis label size
+                                                                            axis.title.y = element_text(face="bold", size = 25),               # Y-axis label size
+                                                                            axis.text.x = element_text(size = 25),                # X-axis tick mark size
+                                                                            axis.text.y = element_text(size = 25),
+                                                                            legend.text = element_text(size = 14),
+                                                                            legend.title = element_text(face = 'bold',size = 14))
+
+# Save
+ggsave(paste0(microglia_fc_comparison.plot.path, "DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha5.plot.png"),       plot = DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha5.plot,       width = 6, height= 5, units='in', dpi=600, device = "png")
+ggsave(paste0(microglia_fc_comparison.plot.path, "DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha5.label.plot.png"), plot = DE_Log2FoldChangeScatter_Microglia_tha2p4m05.v.tha5.label.plot, width = 6, height= 5, units='in', dpi=600, device = "png")
+```
+
+#7. Reactome Network Plot
+```{r,fig.height = 7, fig.width = 7}
+
+## Uses ReactomePA to look at REACTOME based functional enrichment
+
+ds <- tha2p4m05.v.tha5
+
+  threshold <- 1e-02
+  
+  genes_to_include <- filter(ds, p_val_adj < threshold,
+    cell_type %in% c('Microglia'))$gene %>% unique()
+  
+  genelevels <- FetchData(tha.seurat, genes_to_include) %>%
+    merge(tha.summary_log10, by.x=0, by.y='CBC') %>%
+    group_by(CoarseCellType, Experiment) %>%
+    summarise(across(all_of(genes_to_include), mean), .groups="drop") %>%
+    filter(CoarseCellType %in% c('Microglia')) %>%
+    unite(cond_exp, CoarseCellType, Experiment) %>%
+    {
+      df_t <- dplyr::select(., -cond_exp) %>% data.table::transpose()
+      colnames(df_t) <- .$cond_exp
+      df_t$gene <- colnames(.)[-1]
+      as_tibble(df_t)
+    }
+  
+  temp <- filter(ds, gene %in% genes_to_include, cell_type %in% c('Microglia')) %>%
+    pivot_wider(names_from=de_category, values_from=c(avg_logFC, p_val, p_val_adj)) %>%
+    merge( rownames_to_column(tha.seurat@assays$RNA@meta.features, var = 'gene'), by = 'gene' ) %>%
+    mutate(
+      sig = case_when(
+        (p_val_adj_2p4m05 < threshold) & (p_val_adj_tha5 < threshold) ~ 'Both',
+        (p_val_adj_2p4m05 < threshold) ~ '2p4m05',
+        (p_val_adj_tha5 < threshold) ~ 'tha5',
+        TRUE ~ 'none'
+      ),
+      sig = factor(sig, levels = c('2p4m05', 'tha5', 'Both'))
+    ) %>%
+    merge(
+      genelevels, by = 'gene'
+    ) %>%
+    mutate(size_n = Microglia_NI_0 - Microglia_NI_0) %>%
+    mutate(size_n = size_n + abs(min(size_n))) %>%
+    arrange(sig)
+
+bothgene.2p4m05.v.tha5  <- temp[temp$sig == 'Both', ]
+
+degs <- bothgene.2p4m05.v.tha5$gene
+
+degs.id <- bitr(degs, fromType = "ALIAS", toType = "ENTREZID", OrgDb = "org.Hs.eg.db")
+
+reactPA <- enrichPathway(gene = degs.id$ENTREZID,
+                   pvalueCutoff = 0.05,
+                   readable = T)
+
+reactPA@result$log10.p.adj <- -log10(reactPA@result$p.adjust)
+
+options(repr.plot.width = 8, repr.plot.height = 10)
+
+dot.reactome <- enrichplot::dotplot(reactPA, x = 'log10.p.adj', size = 'GeneRatio', showCategory = 10)
+dot.reactome <- dot.reactome + theme(axis.title.x = element_text(size = 20),               # X-axis label size
+                               axis.title.y = element_text(size = 20),               # Y-axis label size
+                               axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                               axis.text.y = element_text(size = 15))
+
+ggsave("~/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Plots/2_microglia_fc_reactome/2p4m05_tha5_bothgene_reactome.png", plot = dot.reactome, width = 7, height= 9, units='in', dpi=600, device = "png")
+
+
+```
+
+#8. DE Plotting - Volcano Plots 
+```{r Volcano Plots, echo=FALSE}
+
+microglia_fc_comparison.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Plots/1_microglia_fc_comparison/"
+
+### Volcano Plots with Top Genes Visualized
+#################################################################
+###Main Figures (top)
+#################################################################
+#Infected NI vs.tha05 -  Microglia
+ni.v.tha05 %>%
+  {
+  
+  temp <- filter(.,
+    cell_type %in% c('Microglia')
+    ) %>%
+    mutate(cell_type = factor(cell_type, levels = c('Microglia')))
+  
+  colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+  
+  labelgenes <- temp %>%
+    mutate(n = setNames(c(10,10,10), unique(cell_type))[cell_type]) %>%
+    group_by(cell_type) %>%
+    arrange(desc(-log(p_val_adj)), .by_group=TRUE) %>%
+    filter(row_number() <= n[1]) %>%
+    dplyr::select(-n) %>%
+    bind_rows(
+      filter(temp, cell_type == 'Microglia', avg_logFC < 0) %>%
+        slice_max(-log10(p_val_adj), n = 4)
+    )
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    facet_wrap(~cell_type)+
+    geom_hline(yintercept=2, linetype = 2)+
+    scale_x_continuous(limits = c(-5.5, 5.5))+
+    scale_y_continuous(limits = c(0, 80))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank()
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_Microglia_tha05vsNI
+
+
+#gene reference version
+Microglia_tha05vsNI_labels <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.01, max.overlaps=1000)
+DE_VolcanoPlot_Microglia_tha05vsNI_reference <- DE_VolcanoPlot_Microglia_tha05vsNI + Microglia_tha05vsNI_labels
+
+#Save
+ggsave(paste0(microglia_fc_comparison.path, "DE_VolcanoPlot_Microglia_tha05vsNI.png"),            DE_VolcanoPlot_Microglia_tha05vsNI,           device='png', width = 2.25, height=2.25, units='in', dpi=600)
+ggsave(paste0(microglia_fc_comparison.path, "DE_VolcanoPlot_Microglia_tha05vsNI_reference.png"),  DE_VolcanoPlot_Microglia_tha05vsNI_reference, device='png', width = 8, height=8, units='in', dpi=600)
+
+# Used to visualize gene names associated with every point
+# ggplot(ni.v.tha5, aes(x = avg_logFC,  y = -log10(p_val_adj), label=gene))+
+#     geom_point(size=0.5) +
+#     geom_text()+
+#     geom_point(size=0.5, color='red') +
+#     facet_wrap(~cell_type)+
+#     geom_hline(yintercept=2, linetype = 2)+
+#     scale_x_continuous(limits = c(-5.5, 5.5))+
+#     scale_y_continuous(limits = c(0, 80))+
+#     theme_bw()+
+#     theme(axis.title=element_blank(),
+#       strip.background=element_blank()
+#       # strip.text=element_blank(),
+#       )
+# 
+
+
+
+
+#Infected NI vs.tha5 -  Microglia
+ni.v.tha5 %>%
+  {
+  
+  temp <- filter(.,
+    cell_type %in% c('Microglia')
+    ) %>%
+    mutate(cell_type = factor(cell_type, levels = c('Microglia')))
+  
+  colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+  
+  labelgenes <- temp %>%
+    mutate(n = setNames(c(10,10,10), unique(cell_type))[cell_type]) %>%
+    group_by(cell_type) %>%
+    arrange(desc(-log(p_val_adj)), .by_group=TRUE) %>%
+    filter(row_number() <= n[1]) %>%
+    dplyr::select(-n) %>%
+    bind_rows(
+      filter(temp, cell_type == 'Microglia', avg_logFC < 0) %>%
+        slice_max(-log10(p_val_adj), n = 4)
+    )
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    facet_wrap(~cell_type)+
+    geom_hline(yintercept=2, linetype = 2)+
+    scale_x_continuous(limits = c(-5.5, 5.5))+
+    scale_y_continuous(limits = c(0, 80))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank()
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_Microglia_tha5vsNI
+
+#gene reference version
+Microglia_tha5vsNI_labels <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=200)
+DE_VolcanoPlot_Microglia_tha5vsNI_reference <- DE_VolcanoPlot_Microglia_tha5vsNI + Microglia_tha5vsNI_labels
+
+#Save
+ggsave(paste0(microglia_fc_comparison.path, "DE_VolcanoPlot_Microglia_tha5vsNI.png"),            DE_VolcanoPlot_Microglia_tha5vsNI,           device='png', width = 2.25, height=2.25, units='in', dpi=600)
+ggsave(paste0(microglia_fc_comparison.path, "DE_VolcanoPlot_Microglia_tha5vsNI_reference.png"),  DE_VolcanoPlot_Microglia_tha5vsNI_reference, device='png', width = 8, height=8, units='in', dpi=600)
+
+#Infected NI vs.tha5 -  Microglia
+ni.v.2p4m05 %>%
+  {
+  
+  temp <- filter(.,
+    cell_type %in% c('Microglia')
+    ) %>%
+    mutate(cell_type = factor(cell_type, levels = c('Microglia')))
+  
+  colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+  
+  labelgenes <- temp %>%
+    mutate(n = setNames(c(10,10,10), unique(cell_type))[cell_type]) %>%
+    group_by(cell_type) %>%
+    arrange(desc(-log(p_val_adj)), .by_group=TRUE) %>%
+    filter(row_number() <= n[1]) %>%
+    dplyr::select(-n) %>%
+    bind_rows(
+      filter(temp, cell_type == 'Microglia', avg_logFC < 0) %>%
+        slice_max(-log10(p_val_adj), n = 4)
+    )
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    facet_wrap(~cell_type)+
+    geom_hline(yintercept=2, linetype = 2)+
+    scale_x_continuous(limits = c(-5.5, 5.5))+
+    scale_y_continuous(limits = c(0, 80))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank()
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_Microglia_2p4m05vsNI
+
+#gene reference version
+Microglia_tha2p4m05vsNI_labels <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=200)
+DE_VolcanoPlot_Microglia_2p4m05vsNI_reference <- DE_VolcanoPlot_Microglia_2p4m05vsNI + Microglia_tha2p4m05vsNI_labels
+
+#Save
+ggsave(paste0(microglia_fc_comparison.path, "DE_VolcanoPlot_Microglia_2p4m05vsNI.png"),              DE_VolcanoPlot_Microglia_2p4m05vsNI,           device='png', width = 2.25, height=2.25, units='in', dpi=600)
+ggsave(paste0(microglia_fc_comparison.path, "DE_VolcanoPlot_Microglia_2p4m05vsNI_reference.png"),  DE_VolcanoPlot_Microglia_2p4m05vsNI_reference, device='png', width = 8, height=8, units='in', dpi=600)
+
+```

@@ -1,0 +1,159 @@
+---
+title: "Subclustering to remove doublets from neurons, mitotic and hNSCs libraries"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(Matrix)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load Data
+```{r load data, echo=FALSE}
+#Global Dataset 
+tha.celltype.infections.summary <- read_rds(tha.celltype.infections.summary.path)
+tha.seurat                      <- read_rds(tha.seurat.path)
+
+#astrocyte seurat analysis
+astro.seurat                                      <- readRDS(astro.seurat.path)
+astro.seurat.markers                              <- readRDS(astro.seurat.markers.path)
+tha.celltype.infections.summary_astrocytes_CLEAN2 <- read_rds(tha.celltype.infections.summary_astrocytes_CLEAN2.path) #doublets removed from 6a_astrocytes_PP_Arpy_v1
+tha.celltype.infections.summary_astrocytes        <- read_rds(tha.celltype.infections.summary_astrocytes.path)
+
+#microglia seurat analysis
+mg_seurat                                         <- read_rds(mg_seurat.path) #doublets removed by greg
+
+#neuron seurat analysis
+neuron.seurat         <- readRDS(neuron.seurat.path)
+neuron.seurat.markers <- readRDS(neuron.seurat.markers.path)
+
+#mitotic seurat analysis
+mitotic.seurat         <- readRDS(mitotic.seurat.path)
+mitotic.seurat.markers <- readRDS(mitotic.seurat.markers.path)
+
+#hNSCs seurat analysis
+hNSC.seurat            <- readRDS(hNSC.seurat.path)
+hNSC.seurat.markers    <- readRDS(hNSC.seurat.markers.path)
+
+
+
+```
+
+#1. Doublet flagging and saving
+###Astrocytes
+```{r astrocytes, echo=FALSE}
+
+astrocyte_seurat.include <- 
+  tha.celltype.infections.summary %>%
+  filter(seurat.include == "yes", CoarseCellType == "Astrocyte") %>%
+  pull(CBC)
+
+astrocyte.doublets <- setdiff(x = astrocyte_seurat.include, y = tha.celltype.infections.summary_astrocytes_CLEAN2$CBC)
+
+
+#Save
+saveRDS(object = astrocyte.doublets, astrocyte.doublets.path)
+
+```
+
+###Microglia
+```{r microglia, echo=FALSE}
+
+microglia_seurat.include <- 
+  tha.celltype.infections.summary %>%
+  filter(seurat.include == "yes", CoarseCellType == "Microglia") %>%
+  pull(CBC)
+
+microglia.doublets <- setdiff(x = microglia_seurat.include, y = rownames( mg_seurat@meta.data ))
+
+#Save
+saveRDS(object = microglia.doublets, microglia.doublets.path)
+
+```
+
+###Neurons
+```{r neurons, echo=FALSE}
+
+DimPlot(neuron.seurat)
+View(neuron.seurat.markers)
+
+#I checked gene markers for Clusters 7 and 8 and those are not doublets
+
+#Cluster 6 
+FeaturePlot(object = neuron.seurat, features = c("LHX4", "FOXP4", "PANTR1"))
+FeaturePlot(object = tha.seurat, features = c("LHX4", "FOXP4", "PANTR1"))
+
+
+neuron.doublets <- "none"
+
+#Save
+saveRDS(object = neuron.doublets, neuron.doublets.path)
+
+
+```
+
+###Mitotic
+```{r mitotic, echo=FALSE}
+
+DimPlot(mitotic.seurat)
+View(mitotic.seurat.markers)
+
+#Cluster 3 and all cells with < -3 UMAP_1 values are doublets
+FeaturePlot(object = mitotic.seurat, features = c("NEUROD1", "ST18", "INSM1"))
+FeaturePlot(object = tha.seurat, features = c("NEUROD1", "ST18", "INSM1"))
+
+mitotic.doublets <- names(which(mitotic.seurat@reductions$umap@cell.embeddings[,"UMAP_1"] < -3))
+
+#Save
+saveRDS(object = mitotic.doublets, mitotic.doublets.path)
+
+
+```
+
+
+###hNSCs
+```{r hNSCs, echo=FALSE}
+
+###Mitotic
+DimPlot(hNSC.seurat)
+View(hNSC.seurat.markers)
+
+#Cluster 1 check -- not doublets
+FeaturePlot(object = hNSC.seurat, features = c("MAB21L1", "CNTN2", "OTP", "C1QL1"))
+FeaturePlot(object = tha.seurat, features = c("MAB21L1", "CNTN2", "OTP", "C1QL1"))
+
+#Cluster 3 check -- not doublets
+FeaturePlot(object = hNSC.seurat, features = c("LMX1B", "TLX3", "POU4F2"))
+FeaturePlot(object = tha.seurat, features = c("LMX1B", "TLX3", "POU4F2"))
+
+#Cluster 4 check -- not doublets
+FeaturePlot(object = hNSC.seurat, features = c("DLX5", "ARX", "DLX2"))
+FeaturePlot(object = tha.seurat, features = c("DLX5", "ARX", "DLX2"))
+
+hNSC.doublets <- "none"
+
+#Save
+saveRDS(object = hNSC.doublets, hNSC.doublets.path)
+
+```
+
+###GLOBAL UMAP
+```{r global umap, echo=FALSE}
+
+###Mitotic
+DimPlot(tha.seurat)
+
+
+#Save
+saveRDS(object = hNSC.doublets, hNSC.doublets.path)
+
+```
+
+

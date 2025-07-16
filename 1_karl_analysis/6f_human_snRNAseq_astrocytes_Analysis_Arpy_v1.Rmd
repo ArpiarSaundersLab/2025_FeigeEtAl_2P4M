@@ -1,0 +1,489 @@
+----------------------
+Analyze Gene Scores related to Tha Astrocyte Cluster 0 and Cluster 2 in NPH and COVID snRNA-seq datasets
+----------------------
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(Matrix)
+library(qs)
+library(data.table)
+library(cowplot)
+library(PupillometryR)
+library(tune)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load Data
+```{r load data, echo=FALSE}
+#define paths
+gene.set.path               <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/gene_sets/"
+gene_set_scores.output.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/gene_sets/gene_set_scores/"
+
+
+###Load
+#Seurat objects for Tha and NPH Astrocyte Datasets
+nph.astro.seurat   <- readRDS(file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/seurat_obj/nph.astro.seurat.RDS")
+covid.astro.seurat <- readRDS(file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/seurat_obj/covid.astro.seurat.RDS")
+
+#Gene Sets
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets <- readRDS(file = paste0(gene.set.path, "AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets.RDS"))
+
+#Gene Set Scores
+Tha_GeneSetScores                                <- readRDS(file = paste0(gene_set_scores.output.path, "Tha_GeneSetScores.RDS"))
+NPH_GeneSetScores                                <- readRDS(file = paste0(gene_set_scores.output.path, "NPH_GeneSetScores.RDS"))
+COVID_GeneSetScores                              <- readRDS(file = paste0(gene_set_scores.output.path, "COVID_GeneSetScores.RDS"))
+NPH_GeneSetScores_ControlSampling                <- readRDS(file = paste0(gene.set.path, "NPH_GeneSetScores_ControlSampling_1000.RDS"))
+
+#Gene Set Z-Scores (for data from NPH dataset for real scores and 1000 samples matching the UP_adjp01_lfc_2 gene tiles)
+NPH_GeneSetScores_ControlSamplingZScoreFinal     <- readRDS(file = paste0(gene_set_scores.output.path, "NPH_GeneSetScores_ControlSamplingZScoreFinal.RDS"))
+
+
+```
+
+```{r human snRNA-seq plot path, echo = FALSE}
+#GeneratePlots
+#define path
+human_snRNAseq.plot.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/human_snRNAseq/"
+```
+
+#1. Gene Score Scatter Plots
+```{r gene score scatter plots, echo=FALSE}
+
+#Preprocess
+Tha_GeneSetScores.clean <-
+  Tha_GeneSetScores %>%
+  filter(seurat_clusters %in% c("0","2"))
+
+
+#####Tha
+#Plotting
+Tha_GSS_lfc2.plot <-
+  ggplot(Tha_GeneSetScores, aes(x = GeneSetUP_adjp01_lfc_2, y = GeneSetDOWN_adjp01_lfc_2))+
+    geom_bin2d(bins = 100, ) +
+    scale_fill_viridis_c(option  = "rocket")+
+    guides(fill = FALSE)
+
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "Tha_GSS_lfc2.plot.png"), Tha_GSS_lfc2.plot, device='png', width = 5, height=5, units='in', dpi=600)
+
+
+Tha_GSS_lfc2.labels.plot <-
+  ggplot(Tha_GeneSetScores, aes(x = GeneSetUP_adjp01_lfc_2, y = GeneSetDOWN_adjp01_lfc_2))+
+    geom_bin2d(bins = 100)+
+    scale_fill_viridis_c(option  = "rocket")
+
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "Tha_GSS_lfc2.labels.plot.png"), Tha_GSS_lfc2.labels.plot, device='png', width = 5, height=5, units='in', dpi=600)
+
+
+Tha_GSS_lfc2.ident.plot <-
+  ggplot(Tha_GeneSetScores.clean, aes(x = GeneSetUP_adjp01_lfc_2, y = GeneSetDOWN_adjp01_lfc_2, color = seurat_clusters))+
+  geom_point(size = 3)+
+  scale_color_manual(values = c(Astrocyte_color, AstrocteReactive_color))+
+  guides(color = FALSE)
+
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "Tha_GSS_lfc2.ident.plot.png"), Tha_GSS_lfc2.ident.plot, device='png', width = 5, height=5, units='in', dpi=600)
+
+
+Tha_GSS_lfc2.ident.labels.plot <-
+  ggplot(Tha_GeneSetScores.clean, aes(x = GeneSetUP_adjp01_lfc_2, y = GeneSetDOWN_adjp01_lfc_2, color = seurat_clusters))+
+  geom_point(size = 3)+
+  scale_color_manual(values = c(Astrocyte_color, AstrocteReactive_color))
+
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "Tha_GSS_lfc2.ident.labels.plot.png"), Tha_GSS_lfc2.ident.labels.plot, device='png', width = 5, height=5, units='in', dpi=600)
+
+
+
+
+
+
+
+
+#Exploratory raw Gene Score plotting in COVID and NPH datasets
+NPH_GSS_lfc2.plot <-
+  ggplot(NPH_GeneSetScores, aes(x = GeneSetUP_adjp01_lfc_2, y = GeneSetDOWN_adjp01_lfc_2))+
+    geom_bin2d(bins = 200) +
+    scale_fill_continuous(type = "viridis")
+
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "NPH_GSS_lfc2.plot.png"), NPH_GSS_lfc2.plot, device='png', width = 5, height=5, units='in', dpi=600)
+
+
+COVID_GSS_lfc2.plot <-
+  ggplot(COVID_GeneSetScores, aes(x = GeneSetUP_adjp01_lfc_2, y = GeneSetDOWN_adjp01_lfc_2))+
+    geom_bin2d(bins = 200)+
+    scale_fill_continuous(type = "viridis")
+
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "COVID_GSS_lfc2.plot.png"), COVID_GSS_lfc2.plot, device='png', width = 5, height=5, units='in', dpi=600)
+
+  
+  
+
+
+
+```
+
+#2. Gene Z-Score Comparison and Plotting
+```{r z score comparison, echo=FALSE}
+
+
+#preprocess Z Scores and add gene_set_type information
+NPH_GeneSetScores_ControlSamplingZScore_Samples <-
+  NPH_GeneSetScores_ControlSamplingZScoreFinal %>%
+  dplyr::select(CBC, orig.ident, contains("sample_")) %>%
+  mutate(gene_set_type = "permuted")
+
+NPH_GeneSetScores_ControlSamplingZScore_Real <-
+  NPH_GeneSetScores_ControlSamplingZScoreFinal %>%
+  dplyr::select(CBC, orig.ident, GeneSetUP_adjp01_lfc_2)  %>%
+  mutate(gene_set_type = "real")
+
+NPH_GeneSetScores_ControlSamplingZScore_Samples_Long <-
+  NPH_GeneSetScores_ControlSamplingZScore_Samples %>%
+  pivot_longer(cols = contains("sample_")) %>%
+  dplyr::rename(zscore = value) %>%
+  dplyr::relocate(CBC, orig.ident, name, gene_set_type, zscore)
+
+NPH_GeneSetScores_ControlSamplingZScore_Real_Long <-
+  NPH_GeneSetScores_ControlSamplingZScore_Real %>%
+  mutate(name = "GeneSetUP_adjp01_lfc_2") %>%
+  dplyr::rename(zscore = GeneSetUP_adjp01_lfc_2) %>%
+  dplyr::relocate(CBC, orig.ident, name, gene_set_type, zscore)
+
+NPH_GeneSetScores_ControlSamplingZScore_ALL_Long <- bind_rows(NPH_GeneSetScores_ControlSamplingZScore_Real_Long, NPH_GeneSetScores_ControlSamplingZScore_Samples_Long)
+
+
+NPH_GeneSetScores_ControlSamplingZScore_ALL_Long <-
+  NPH_GeneSetScores_ControlSamplingZScore_ALL_Long %>%
+  mutate(gene_set_type = factor(gene_set_type, levels = c("permuted", "real"))) %>% 
+  group_by(name) %>%
+  mutate(
+         outlier_lwr = zscore < quantile(zscore, probs = 0.25) - IQR(zscore) * 1.5,
+         outlier_upr = zscore > quantile(zscore, probs = 0.75) + IQR(zscore) * 1.5
+         ) %>%
+  ungroup %>%
+  dplyr::sample_n(nrow(NPH_GeneSetScores_ControlSamplingZScore_ALL_Long)) #randomizes rows for plotting
+
+
+NPH_GeneSetScores_ControlSamplingZScore_ALL_Long_Small <-
+  NPH_GeneSetScores_ControlSamplingZScore_ALL_Long %>%
+  filter(name %in% c("GeneSetUP_adjp01_lfc_2", "adjp01_lfc_2.sample_1", "adjp01_lfc_2.sample_2", "adjp01_lfc_2.sample_3", "adjp01_lfc_2.sample_4", 
+                     "adjp01_lfc_2.sample_5", "adjp01_lfc_2.sample_6", "adjp01_lfc_2.sample_7", "adjp01_lfc_2.sample_8", "adjp01_lfc_2.sample_9", "adjp01_lfc_2.sample_10"))
+
+
+#GeneratePlots
+#define path
+human_snRNAseq.plot.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/human_snRNAseq/"
+
+NPH_Zscores_by_gene_set_type_SMALL_boxplot <-
+  ggplot(NPH_GeneSetScores_ControlSamplingZScore_ALL_Long_Small, aes(x = gene_set_type, y = zscore))+
+    geom_boxplot(outlier.shape = NA, width=.2) +  # NO OUTLIERS
+    geom_jitter(data = function(x) subset(x, outlier_lwr | outlier_upr), aes(fill = orig.ident, size = zscore), width = 0.1, shape = 21, alpha = 0.8)+
+    scale_size_continuous(range = c(0.001, 10))+
+    geom_flat_violin(position = position_nudge(x = 0.18), trim = TRUE, alpha = 0.7, scale = "width")+
+    geom_hline(aes(yintercept = 4.5), linetype = "dashed", colour = "red", linewidth = 1)+
+    coord_flip()+
+    guides(fill = FALSE, size = FALSE)
+    
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "NPH_Zscores_by_gene_set_type_SMALL_boxplot.png"), NPH_Zscores_by_gene_set_type_SMALL_boxplot, device='png', width = 12, height=5, units='in', dpi=600)
+
+
+NPH_Zscores_by_gene_set_type_boxplot <-
+  ggplot(NPH_GeneSetScores_ControlSamplingZScore_ALL_Long, aes(x = gene_set_type, y = zscore))+
+    geom_boxplot(outlier.shape = NA, width=.2) +  # NO OUTLIERS
+    geom_jitter(data = function(x) subset(x, outlier_lwr | outlier_upr), aes(fill = orig.ident, size = zscore), width = 0.1, shape = 21, alpha = 0.8)+
+    scale_size_continuous(range = c(0.001, 10))+
+    #geom_point(data = function(x) subset(x, outlier_lwr | outlier_upr), position = 'jitter', aes(color = orig.ident))+
+    geom_flat_violin(position = position_nudge(x = 0.18), trim = TRUE, alpha = 0.7, scale = "width")+
+    #scale_fill_manual(values = c("#bdbdbd", "#fdae6b"))+
+    geom_hline(aes(yintercept = 4.5), linetype = "dashed", colour = "red", linewidth = 1)+
+    coord_flip()+
+    guides(fill = FALSE, size = FALSE)
+
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "NPH_Zscores_by_gene_set_type_boxplot.png"), NPH_Zscores_by_gene_set_type_boxplot, device='png', width = 12, height=5, units='in', dpi=600)
+
+
+```
+
+```{r Analysis of Cluster2-like snRNA-seq profiles in the NPH dataset, echo = FALSE}
+
+#Assess Cluster2-like snRNA-profiles by donor in the NPH dataset
+NPH_Cluster2like_SummaryByDonor_Zscore5 <-
+  NPH_GeneSetScores_ControlSamplingZScore_Real_Long %>%
+  mutate(Cluster2like = case_when( zscore > 5 ~ "yes", TRUE ~ "no")) %>%
+  mutate(Cluster2like = factor(Cluster2like, levels = c("yes", "no"))) %>%
+  group_by(orig.ident, .drop = FALSE) %>%
+  count(Cluster2like, .drop = FALSE) %>%
+  group_by(Cluster2like, .drop = FALSE) %>%
+  mutate(Cluster2like_nTotal = sum(n))
+
+NPH_Cluster2like_SummaryByDonor_Zscore4.5 <-
+  NPH_GeneSetScores_ControlSamplingZScore_Real_Long %>%
+  mutate(Cluster2like = case_when( zscore > 4.5 ~ "yes", TRUE ~ "no")) %>%
+  mutate(Cluster2like = factor(Cluster2like, levels = c("yes", "no"))) %>%
+  group_by(orig.ident, .drop = FALSE) %>%
+  count(Cluster2like, .drop = FALSE) %>%
+  group_by(Cluster2like, .drop = FALSE) %>%
+  mutate(Cluster2like_nTotal = sum(n))
+
+NPH_Cluster2like_SummaryByDonor_Zscore4 <-
+  NPH_GeneSetScores_ControlSamplingZScore_Real_Long %>%
+  mutate(Cluster2like = case_when( zscore > 4 ~ "yes", TRUE ~ "no")) %>%
+  mutate(Cluster2like = factor(Cluster2like, levels = c("yes", "no"))) %>%
+  group_by(orig.ident, .drop = FALSE) %>%
+  count(Cluster2like, .drop = FALSE) %>%
+  group_by(Cluster2like, .drop = FALSE) %>%
+  mutate(Cluster2like_nTotal = sum(n))
+
+#pull out CBCs associated with Cluster 2-like state using z-score thresholds
+CBC_NPH_ZScore_greater5  <-
+  NPH_GeneSetScores_ControlSamplingZScore_Real %>%
+  filter(GeneSetUP_adjp01_lfc_2 > 5) %>%
+  pull(CBC) %>%
+  as.character()
+
+CBC_NPH_ZScore_greater4.5  <-
+  NPH_GeneSetScores_ControlSamplingZScore_Real %>%
+  filter(GeneSetUP_adjp01_lfc_2 > 4.5) %>%
+  pull(CBC) %>%
+  as.character()
+
+CBC_NPH_ZScore_greater4  <-
+  NPH_GeneSetScores_ControlSamplingZScore_Real %>%
+  filter(GeneSetUP_adjp01_lfc_2 > 4) %>%
+  pull(CBC) %>%
+  as.character()
+
+CBC_NPH_ZScore_List <- list("zscore_thresh_5" = CBC_NPH_ZScore_greater5, "zscore_thresh_4.5" = CBC_NPH_ZScore_greater4.5, "zscore_thresh_4" = CBC_NPH_ZScore_greater4 )
+
+#save
+saveRDS(object = CBC_NPH_ZScore_List, file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/gene_sets/CBC_NPH_ZScore_List.RDS")
+
+
+#loop over various CBC_NPH_ZScore list and save the resulting summaries and plots
+
+for( k in 1:length(CBC_NPH_ZScore_List)) {
+  
+save.name <- names(CBC_NPH_ZScore_List)[k]
+print(save.name)
+
+#Assign Cluster2-like state information to NPH seurat object metadata
+temp.nph.meta                      <- nph.astro.seurat@meta.data
+temp.nph.meta$putativecluster2like <- "no"
+temp.nph.meta$putativecluster2like[which(row.names(temp.nph.meta) %in% CBC_NPH_ZScore_List[[k]])] <- "yes"
+nph.astro.seurat@meta.data         <- temp.nph.meta
+
+Idents(nph.astro.seurat) <- "putativecluster2like"
+
+#key gene sets
+nph.expressed.genes                      <- rownames(nph.astro.seurat@assays$RNA)
+InNPH_GeneSetUP_adjp01_lfc_0             <- intersect(AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_0, nph.expressed.genes)
+InNPH_GeneSetUP_adjp01_lfc_1             <- intersect(AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1, nph.expressed.genes)
+InNPH_GeneSetUP_adjp01_lfc_1.5           <- intersect(AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1.5, nph.expressed.genes)
+InNPH_GeneSetUP_adjp01_lfc_2             <- intersect(AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_2, nph.expressed.genes)
+InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2   <- intersect(setdiff(x = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1,   y = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_2), nph.expressed.genes)
+InNPH_GeneSetUP_adjp01_lfc_1.5_NOT_lfc_2 <- intersect(setdiff(x = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1.5, y = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_2), nph.expressed.genes)
+InNPH_GeneSetUP_adjp01_lfc_0_NOT_lfc_2   <- intersect(setdiff(x = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_0,   y = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_2), nph.expressed.genes)
+
+
+
+#create metacells for normalized gene expression across putativecluster2like no/yes
+
+bulk_counts     <- Seurat:::PseudobulkExpression(object = nph.astro.seurat, pb.method = 'aggregate', slot = 'counts')
+bulk_counts_tbl <- as_tibble(x = as.data.frame(bulk_counts$RNA), rownames = "gene")
+
+NPH_Cluster2Like_MetaCellExpression <-
+  bulk_counts_tbl %>%
+  mutate(no_RCS = no/sum(no) * 1E4) %>%
+  mutate(yes_RCS = yes/sum(yes) * 1E4) %>%
+  mutate(no_norm = log1p(no_RCS)) %>%
+  mutate(yes_norm = log1p(yes_RCS)) %>%
+  mutate(max_RCS_diff = yes_RCS - no_RCS)
+
+saveRDS(object = NPH_Cluster2Like_MetaCellExpression, file = paste0("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/metacells/NPH_Cluster2Like_MetaCellExpression_", save.name, ".RDS"))
+
+# NPH_Cluster2Like_MetaCellExpression <- readRDS(file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/metacells/NPH_Cluster2Like_MetaCellExpression.RDS")
+
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2 <-
+  NPH_Cluster2Like_MetaCellExpression %>%
+  filter(gene %in% InNPH_GeneSetUP_adjp01_lfc_2)
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2 <-
+  NPH_Cluster2Like_MetaCellExpression %>%
+  filter(gene %in% InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2)
+
+
+
+
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.plot <- 
+  ggplot(data = NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2, aes(x = log(no_RCS), y = log(yes_RCS)))+
+    geom_point(color = "red", alpha = 0.8)+
+    coord_obs_pred()+
+    #ggrepel::geom_text_repel(aes(label = gene), size = 2, min.segment.length=0.1, max.overlaps=20)+
+    geom_abline(slope=1, intercept = 0, linetype = "dotted")
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.plot_labels <- 
+  ggplot(data = NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2, aes(x = log(no_RCS), y = log(yes_RCS)))+
+    geom_point(color = "red", alpha = 0.5)+
+    coord_obs_pred()+
+    ggrepel::geom_text_repel(aes(label = gene), size = 2, min.segment.length=0.1, max.overlaps=50)+
+    geom_abline(slope=1, intercept = 0, linetype = "dotted")
+
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.plot_", save.name, ".png"),               NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.plot,        device='png', width = 5, height=5, units='in', dpi=600)
+ggsave(paste0(human_snRNAseq.plot.path, "NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.plot_labels_", save.name, ".png"),        NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.plot_labels, device='png', width = 5, height=5, units='in', dpi=600)
+
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.plot <- 
+  ggplot(data = NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2, aes(x = log(no_RCS), y = log(yes_RCS)))+
+    geom_point(color = "red", alpha = 0.8)+
+    coord_obs_pred()+
+    geom_abline(slope=1, intercept = 0, linetype = "dotted")
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.plot_labels <- 
+  ggplot(data = NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2, aes(x = log(no_RCS), y = log(yes_RCS)))+
+    geom_point(color = "red", alpha = 0.8)+
+    coord_obs_pred()+
+    ggrepel::geom_text_repel(aes(label = gene), size = 2, min.segment.length=0.1, max.overlaps=50)+
+    geom_abline(slope=1, intercept = 0, linetype = "dotted")
+
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.plot_", save.name, ".png"),        NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.plot,        device='png', width = 5, height=5, units='in', dpi=600)
+ggsave(paste0(human_snRNAseq.plot.path, "NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.plot_labels_", save.name, ".png"), NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.plot_labels, device='png', width = 5, height=5, units='in', dpi=600)
+
+}
+
+
+
+#Make custom plots for desired Z-Score cut-off
+NPH_Cluster2Like_MetaCellExpression_zscore_thresh_4.5 <- readRDS(file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/metacells/NPH_Cluster2Like_MetaCellExpression_zscore_thresh_4.5.RDS")
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2 <-
+  NPH_Cluster2Like_MetaCellExpression_zscore_thresh_4.5 %>%
+  filter(gene %in% InNPH_GeneSetUP_adjp01_lfc_2)
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2 <-
+  NPH_Cluster2Like_MetaCellExpression_zscore_thresh_4.5 %>%
+  filter(gene %in% InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2)
+
+
+
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.CUSTOM.plot <- 
+  ggplot(data = NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2, aes(x = log10(no_RCS), y = log10(yes_RCS)))+
+    geom_point(color = "red", alpha = 0.8, size = 2)+
+    coord_obs_pred()+
+    geom_abline(slope=1, intercept = 0, linetype = "dotted", linewidth = 2)+
+    scale_x_continuous(limits = c(-3, 1.25))
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.CUSTOM.plot_labels <- 
+  ggplot(data = NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2, aes(x = log10(no_RCS), y = log10(yes_RCS)))+
+    geom_point(color = "red", alpha = 0.8, size = 2)+
+    coord_obs_pred()+
+    ggrepel::geom_text_repel(aes(label = gene), size = 2, min.segment.length=0.1, max.overlaps=50)+
+    geom_abline(slope=1, intercept = 0, linetype = "dotted", linewidth = 2)+
+    scale_x_continuous(limits = c(-3, 1.25))
+
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.CUSTOM.plot_4.5.png"),        NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.CUSTOM.plot,        device='png', width = 5, height=5, units='in', dpi=600)
+
+ggsave(paste0(human_snRNAseq.plot.path, "NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.CUSTOM.plot_labels_4.5.png"), NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2.scatter.CUSTOM.plot_labels, device='png', width = 5, height=5, units='in', dpi=600)
+
+
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.CUSTOM.plot <- 
+  ggplot(data = NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2, aes(x = log10(no_RCS), y = log10(yes_RCS)))+
+    geom_point(color = "red", alpha = 0.8, size = 2)+
+    coord_obs_pred()+
+    geom_abline(slope=1, intercept = 0, linetype = "dotted", linewidth = 2)+
+    scale_x_continuous(limits = c(-3, 1.25))
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.CUSTOM.plot_labels <- 
+  ggplot(data = NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2, aes(x = log10(no_RCS), y = log10(yes_RCS)))+
+    geom_point(color = "red", alpha = 0.8, size = 2)+
+    coord_obs_pred()+
+    ggrepel::geom_text_repel(aes(label = gene), size = 2, min.segment.length=0.1, max.overlaps=50)+
+    geom_abline(slope=1, intercept = 0, linetype = "dotted", linewidth = 2)+
+    scale_x_continuous(limits = c(-3, 1.25))
+
+#Save
+ggsave(paste0(human_snRNAseq.plot.path, "NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.CUSTOM.plot_4.5.png"),        NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.CUSTOM.plot,        device='png', width = 5, height=5, units='in', dpi=600)
+
+ggsave(paste0(human_snRNAseq.plot.path, "NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.CUSTOM.plot_labels_4.5.png"), NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2.scatter.CUSTOM.plot_labels, device='png', width = 5, height=5, units='in', dpi=600)
+
+
+
+```
+
+#3. STATISTICAL TESTING
+```{r chisq UMI test for the discover and validation set of Cluster 2-like genes in the NPH dataset, echo = FALSE}
+
+#NPH_Cluster2Like_MetaCellExpression <- readRDS(file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/metacells/NPH_Cluster2Like_MetaCellExpression.RDS")
+
+totalUMIs_no  <- sum(NPH_Cluster2Like_MetaCellExpression$no)
+totalUMIs_yes <- sum(NPH_Cluster2Like_MetaCellExpression$yes)
+
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2 <-
+  NPH_Cluster2Like_MetaCellExpression %>%
+  filter(gene %in% InNPH_GeneSetUP_adjp01_lfc_2)
+
+NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2 <-
+  NPH_Cluster2Like_MetaCellExpression %>%
+  filter(gene %in% InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2)
+
+GeneSetUP_adjp01_lfc_2_no  <- sum(NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2$no)
+GeneSetUP_adjp01_lfc_2_yes <- sum(NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_2$yes)
+
+GeneSetUP_adjp01_lfc_1_NOT_lfc_2_no  <- sum(NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2$no)
+GeneSetUP_adjp01_lfc_1_NOT_lfc_2_yes <- sum(NPH_Cluster2Like_MetaCellExpression_InNPH_GeneSetUP_adjp01_lfc_1_NOT_lfc_2$yes)
+
+#make dataframes for chi.sq testing
+GeneSetUP_adjp01_lfc_2_df           <- as.data.frame(matrix(data= '', nrow=2, ncol= 2))
+GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df <- as.data.frame(matrix(data= '', nrow=2, ncol= 2))
+
+#build contingency tables
+colnames(GeneSetUP_adjp01_lfc_2_df)            <- c("AllGenes", "GeneSet")
+colnames(GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df)  <- c("AllGenes", "GeneSet")
+rownames(GeneSetUP_adjp01_lfc_2_df)            <- c("TotalUMIs", "GeneSetUMIs")
+rownames(GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df)  <- c("TotalUMIs", "GeneSetUMIs")
+
+#GeneSetUP_adjp01_lfc_2_df
+GeneSetUP_adjp01_lfc_2_df[1,1] <- totalUMIs_no
+GeneSetUP_adjp01_lfc_2_df[1,2] <- totalUMIs_yes
+GeneSetUP_adjp01_lfc_2_df[2,1] <- GeneSetUP_adjp01_lfc_2_no
+GeneSetUP_adjp01_lfc_2_df[2,2] <- GeneSetUP_adjp01_lfc_2_yes
+
+GeneSetUP_adjp01_lfc_2_df <- mutate_all(GeneSetUP_adjp01_lfc_2_df, function(x) as.numeric(as.character(x))) #make numeric
+
+#GeneSetUP_adjp01_lfc_1_NOT_lfc_2
+GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df[1,1] <- totalUMIs_no
+GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df[1,2] <- totalUMIs_yes
+GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df[2,1] <- GeneSetUP_adjp01_lfc_1_NOT_lfc_2_no
+GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df[2,2] <- GeneSetUP_adjp01_lfc_1_NOT_lfc_2_yes
+
+GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df <- mutate_all(GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df, function(x) as.numeric(as.character(x))) #make numeric
+
+#run chisq tests
+GeneSetUP_adjp01_lfc_2_df.chisq_test           <- chisq.test(x = GeneSetUP_adjp01_lfc_2_df)
+GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df.chisq_test <- chisq.test(x = GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df)
+
+#calculate log2 fold change
+GeneSetUP_adjp01_lfc_2_df.UMIEnrichment           <- (GeneSetUP_adjp01_lfc_2_df$GeneSet[2] / GeneSetUP_adjp01_lfc_2_df$AllGenes[2]) / (GeneSetUP_adjp01_lfc_2_df$GeneSet[1] / GeneSetUP_adjp01_lfc_2_df$AllGenes[1])
+GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df.UMIEnrichment <- (GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df$GeneSet[2] / GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df$AllGenes[2]) / (GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df$GeneSet[1] / GeneSetUP_adjp01_lfc_1_NOT_lfc_2_df$AllGenes[1])
+
+
+
+```

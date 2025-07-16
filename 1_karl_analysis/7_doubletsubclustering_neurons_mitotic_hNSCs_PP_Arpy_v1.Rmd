@@ -1,0 +1,104 @@
+---
+title: "Subclustering to remove doublets from neurons, mitotic and hNSCs libraries"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(Matrix)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load Data
+```{r load data, echo=FALSE}
+
+tha.celltype.infections.summary <- read_rds(tha.celltype.infections.summary.path)
+tha.seurat                      <- read_rds(tha.seurat.path)
+#tha.seurat                      <- read_rds("/Users/arpiarsaunders/OHSU Dropbox/Saunders Lab's shared workspace/youngkar/230131_thai_ms/Data/seurat_obj/tha.seurat.RDS")
+
+```
+
+#2. Run Seurat Workflow for the Neurons
+```{r create a SO for neurons, echo=FALSE}
+#pull Neuron CBCs
+tha.celltype.infections.summary_NeuronCBCs <-
+  tha.celltype.infections.summary %>%
+  filter(CoarseCellType == "Neuron") %>%
+  pull(CBC)
+
+neuron.seurat <- subset(tha.seurat, cells = tha.celltype.infections.summary_NeuronCBCs)
+neuron.seurat <- NormalizeData(neuron.seurat)
+neuron.seurat <- FindVariableFeatures(neuron.seurat)
+neuron.seurat <- ScaleData(neuron.seurat)
+neuron.seurat <- RunPCA(neuron.seurat)
+neuron.seurat <- FindNeighbors(neuron.seurat, dims = 1:10)
+#neuron.seurat <- FindNeighbors(neuron.seurat, dims = 1:10)
+#neuron.seurat <- FindClusters(neuron.seurat, resolution = 0.08, n.start=50, n.iter=50)
+neuron.seurat <- FindClusters(neuron.seurat, resolution = 0.2, n.start=50, n.iter=50)
+neuron.seurat <- RunUMAP(neuron.seurat, dims = 1:10)
+#neuron.seurat <- RunUMAP(neuron.seurat, dims = 1:10)
+neuron.seurat@reductions$umap@cell.embeddings[,'UMAP_2'] <- -neuron.seurat@reductions$umap@cell.embeddings[,'UMAP_2']
+
+neuron.seurat.markers <- FindAllMarkers(neuron.seurat)
+
+write_rds(x = neuron.seurat, file = neuron.seurat.path)
+write_rds(x = neuron.seurat.markers, file = neuron.seurat.markers.path)
+```
+
+#3. Run Seurat Workflow for the Mitotic cells
+```{r create a SO for mitotic, echo=FALSE}
+#pull Mitotic CBCs
+tha.celltype.infections.summary_MitoticCBCs <-
+  tha.celltype.infections.summary %>%
+  filter(CoarseCellType == "Mitotic") %>%
+  pull(CBC)
+
+mitotic.seurat <- subset(tha.seurat, cells = tha.celltype.infections.summary_MitoticCBCs)
+mitotic.seurat <- NormalizeData(mitotic.seurat)
+mitotic.seurat <- FindVariableFeatures(mitotic.seurat)
+mitotic.seurat <- ScaleData(mitotic.seurat)
+mitotic.seurat <- RunPCA(mitotic.seurat)
+mitotic.seurat <- FindNeighbors(mitotic.seurat, dims = 1:20)
+mitotic.seurat <- FindClusters(mitotic.seurat, resolution = 0.2, n.start=50, n.iter=50)
+mitotic.seurat <- RunUMAP(mitotic.seurat, dims = 1:20)
+mitotic.seurat@reductions$umap@cell.embeddings[,'UMAP_2'] <- -mitotic.seurat@reductions$umap@cell.embeddings[,'UMAP_2']
+
+mitotic.seurat.markers <- FindAllMarkers(mitotic.seurat)
+
+write_rds(mitotic.seurat, file = mitotic.seurat.path)
+write_rds(mitotic.seurat.markers, file = mitotic.seurat.markers.path)
+```
+
+#4. Run Seurat Workflow for the hNSCs
+```{r create a SO for hNSC, echo=FALSE}
+#pull hNSC CBCs
+tha.celltype.infections.summary_hNSCCBCs <-
+  tha.celltype.infections.summary %>%
+  filter(CoarseCellType == "hNSC") %>%
+  pull(CBC)
+
+hNSC.seurat <- subset(tha.seurat, cells = tha.celltype.infections.summary_hNSCCBCs)
+hNSC.seurat <- NormalizeData(hNSC.seurat)
+hNSC.seurat <- FindVariableFeatures(hNSC.seurat)
+hNSC.seurat <- ScaleData(hNSC.seurat)
+hNSC.seurat <- RunPCA(hNSC.seurat)
+hNSC.seurat <- FindNeighbors(hNSC.seurat, dims = 1:20)
+hNSC.seurat <- FindClusters(hNSC.seurat, resolution = 0.1, n.start=50, n.iter=50)
+hNSC.seurat <- RunUMAP(hNSC.seurat, dims = 1:20)
+hNSC.seurat@reductions$umap@cell.embeddings[,'UMAP_2'] <- -hNSC.seurat@reductions$umap@cell.embeddings[,'UMAP_2']
+
+hNSC.seurat.markers <- FindAllMarkers(hNSC.seurat)
+
+write_rds(hNSC.seurat, file = hNSC.seurat.path)
+write_rds(hNSC.seurat.markers, file = hNSC.seurat.markers.path)
+```
+
+
+
+

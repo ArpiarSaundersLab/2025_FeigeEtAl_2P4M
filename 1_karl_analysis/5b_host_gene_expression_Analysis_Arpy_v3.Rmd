@@ -1,0 +1,853 @@
+---
+title: "Analysis of host cell expression responses to Tha and Tha2P4M mutations"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+
+#Libraries and Source Files
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(Libra)
+library(clusterProfiler)
+library(enrichplot)
+library(smplot2)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+
+#0. Load data
+```{r load data, message=FALSE}
+
+tha.celltype.infections.summary <- read_rds(tha.celltype.infections.summary.path)
+tha.seurat                      <- read_rds(tha.seurat.path)
+tha.seurat_RC1E5                <- read_rds(tha.seurat_RC1E5.path)
+
+#results of DE Analysis ("5a_host_gene_expression_PP_Arpy_v1.Rmd")
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2         <- readRDS(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.path)
+DE.tha2p4m.high.vs.low.Astrocyte 				           <- readRDS(DE.tha2p4m.high.vs.low.Astrocyte.path)
+DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2 <- readRDS(DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2.path)
+
+DE.tha2p4m.noinfected.vs.NI.CoarseCellType		<- readRDS(DE.tha2p4m.noinfected.vs.NI.CellType.path)
+DE.tha2p4m.noinfected.vs.NI.CoarseCellType		<- readRDS(DE.tha2p4m.noinfected.vs.NI.CoarseCellType.path)
+DE.tha2p4m.vs.NI.CellType 						        <- readRDS(DE.tha2p4m.vs.NI.CellType.path)
+DE.tha2p4m.vs.NI.CoarseCellType					      <- readRDS(DE.tha2p4m.vs.NI.CoarseCellType.path)
+DE.tha2p4m.vs.tha05.CellType					        <- readRDS(DE.tha2p4m.vs.tha05.CellType.path)
+DE.tha2p4m.vs.tha05.CoarseCellType				    <- readRDS(DE.tha2p4m.vs.tha05.CoarseCellType.path)
+DE.tha5.noinfected.vs.NI.CellType 				    <- readRDS(DE.tha5.noinfected.vs.NI.CellType.path)
+DE.tha05.noinfected.vs.NI.CellType 				    <- readRDS(DE.tha05.noinfected.vs.NI.CellType.path)
+DE.tha5.noinfected.vs.NI.CoarseCellType			  <- readRDS(DE.tha5.noinfected.vs.NI.CoarseCellType.path)
+DE.tha05.noinfected.vs.NI.CoarseCellType 		  <- readRDS(DE.tha05.noinfected.vs.NI.CoarseCellType.path)
+DE.tha5.vs.NI.CellType 							          <- readRDS(DE.tha5.vs.NI.CellType.path)
+DE.tha05.vs.NI.CellType 						          <- readRDS(DE.tha05.vs.NI.CellType.path)
+DE.tha5.vs.NI.CoarseCellType 					        <- readRDS(DE.tha5.vs.NI.CoarseCellType.path)
+DE.tha05.vs.NI.CoarseCellType 					      <- readRDS(DE.tha05.vs.NI.CoarseCellType.path)
+DE.tha05.vs.tha2p4m.bystander.CellType  		  <- readRDS(DE.tha05.vs.tha2p4m.bystander.CellType.path)
+DE.tha05.vs.tha2p4m.bystander.CoarseCellType 	<- readRDS(DE.tha05.vs.tha2p4m.bystander.CoarseCellType.path)
+DE.tha05.vs.tha5.CellType 						        <- readRDS(DE.tha05.vs.tha5.CellType.path)
+DE.tha05.vs.tha5.CoarseCellType 				      <- readRDS(DE.tha05.vs.tha5.CoarseCellType.path)
+
+#DE.tha05.vs.NI.bystander.CellType 				    <- readRDS(DE.tha05.vs.NI.bystander.CellType.path)
+#DE.tha05.vs.NI.bystander.CoarseCellType 		  <- readRDS(DE.tha05.vs.NI.bystander.CoarseCellType.path)
+
+#GSEA Results
+GSEA.tha2p4m.vs.tha05.CoarseCellType.a        <- readRDS(GSEA.tha2p4m.vs.tha05.CoarseCellType.a.path)
+GSEA.tha2p4m.vs.tha05.CoarseCellType.n        <- readRDS(GSEA.tha2p4m.vs.tha05.CoarseCellType.n.path)
+```
+
+#1. Preprocess
+```{r preprocess, echo=FALSE}
+
+tha.summary_log10 <-
+  tha.celltype.infections.summary %>%
+  mutate(
+    lViralLoad = log10(ViralLoad),
+    lTotalHost = log10(TotalHost),
+    lTotalViral = log10(TotalViral),
+    lTotalUMIs = log10(TotalUMIs),
+    )
+
+tha.genome <- c('Tha_N', 'Tha_P', 'Tha_M', 'Tha_G', 'Tha_L')
+
+```
+
+#2. DE Summaries
+```{r text summaries, echo = F}
+
+#define the cut-off for signficant genes to be used agains the p_value_adj value
+p_thresh = 0.01
+
+DE.tha05.vs.NI.CellType_SignificantGeneCounts 						               <- CountDE(DE_tbl = DE.tha05.vs.NI.CellType,                      p_cutoff = p_thresh, comparison_name = "DE.tha05.vs.NI.CellType")
+DE.tha5.vs.NI.CellType_SignificantGeneCounts 							               <- CountDE(DE_tbl = DE.tha5.vs.NI.CellType,                       p_cutoff = p_thresh, comparison_name = "DE.tha5.vs.NI.CellType")
+DE.tha05.vs.NI.CellType_SignificantGeneCounts 						               <- CountDE(DE_tbl = DE.tha05.vs.NI.CellType,                      p_cutoff = p_thresh, comparison_name = "DE.tha05.vs.NI.CellType")
+DE.tha2p4m.vs.NI.CellType_SignificantGeneCounts						               <- CountDE(DE_tbl = DE.tha2p4m.vs.NI.CellType,                    p_cutoff = p_thresh, comparison_name = "DE.tha2p4m.vs.NI.CellType")
+DE.tha05.vs.tha5.CellType_SignificantGeneCounts 						             <- CountDE(DE_tbl = DE.tha05.vs.tha5.CellType,                    p_cutoff = p_thresh, comparison_name = "DE.tha05.vs.tha5.CellType")
+DE.tha2p4m.vs.tha05.CellType_SignificantGeneCounts					             <- CountDE(DE_tbl = DE.tha2p4m.vs.tha05.CellType,                 p_cutoff = p_thresh, comparison_name = "DE.tha2p4m.vs.tha05.CellType")
+DE.tha5.noinfected.vs.NI.CellType_SignificantGeneCounts 			           <- CountDE(DE_tbl = DE.tha5.noinfected.vs.NI.CellType,            p_cutoff = p_thresh, comparison_name = "DE.tha5.noinfected.vs.NI.CellType")
+DE.tha05.noinfected.vs.NI.CellType_SignificantGeneCounts 			           <- CountDE(DE_tbl = DE.tha05.noinfected.vs.NI.CellType,           p_cutoff = p_thresh, comparison_name = "DE.tha05.noinfected.vs.NI.CellType")
+DE.tha05.vs.tha2p4m.bystander.CellType_SignificantGeneCounts             <- CountDE(DE_tbl = DE.tha05.vs.tha2p4m.bystander.CellType,       p_cutoff = p_thresh, comparison_name = "DE.tha05.vs.tha2p4m.bystander.CellType")
+
+DE.tha05.vs.NI.CoarseCellType_SignificantGeneCounts 					                <- CountDE(DE_tbl = DE.tha05.vs.NI.CoarseCellType,                p_cutoff = p_thresh, comparison_name = "DE.tha05.vs.NI.CoarseCellType")
+DE.tha5.vs.NI.CoarseCellType_SignificantGeneCounts 					                  <- CountDE(DE_tbl = DE.tha5.vs.NI.CoarseCellType,                 p_cutoff = p_thresh, comparison_name = "DE.tha5.vs.NI.CoarseCellType")
+DE.tha5.noinfected.vs.NI.CoarseCellType_SignificantGeneCounts	                <- CountDE(DE_tbl = DE.tha5.noinfected.vs.NI.CoarseCellType,      p_cutoff = p_thresh, comparison_name = "DE.tha5.noinfected.vs.NI.CoarseCellType")
+DE.tha2p4m.vs.NI.CoarseCellType_SignificantGeneCounts					                <- CountDE(DE_tbl = DE.tha2p4m.vs.NI.CoarseCellType,              p_cutoff = p_thresh, comparison_name = "DE.tha2p4m.vs.NI.CoarseCellType")
+DE.tha2p4m.vs.tha05.CoarseCellType_SignificantGeneCounts			                <- CountDE(DE_tbl = DE.tha2p4m.vs.tha05.CoarseCellType,           p_cutoff = p_thresh, comparison_name = "DE.tha2p4m.vs.tha05.CoarseCellType")
+DE.tha05.vs.tha5.CoarseCellType_SignificantGeneCounts 				                <- CountDE(DE_tbl = DE.tha05.vs.tha5.CoarseCellType,              p_cutoff = p_thresh, comparison_name = "DE.tha05.vs.tha5.CoarseCellType")
+DE.tha05.noinfected.vs.NI.CoarseCellType_SignificantGeneCounts 		            <- CountDE(DE_tbl = DE.tha05.noinfected.vs.NI.CoarseCellType,     p_cutoff = p_thresh, comparison_name = "DE.tha05.noinfected.vs.NI.CoarseCellType")
+DE.tha2p4m.noinfected.vs.NI.CoarseCellType_SignificantGeneCounts	       	    <- CountDE(DE_tbl = DE.tha2p4m.noinfected.vs.NI.CoarseCellType,   p_cutoff = p_thresh, comparison_name = "DE.tha2p4m.noinfected.vs.NI.CoarseCellType")
+DE.tha2p4m.noinfected.vs.NI.CoarseCellType_SignificantGeneCounts		          <- CountDE(DE_tbl = DE.tha2p4m.noinfected.vs.NI.CoarseCellType,   p_cutoff = p_thresh, comparison_name = "DE.tha2p4m.noinfected.vs.NI.CoarseCellType")
+DE.tha05.vs.tha2p4m.bystander.CoarseCellType_SignificantGeneCounts 	          <- CountDE(DE_tbl = DE.tha05.vs.tha2p4m.bystander.CoarseCellType, p_cutoff = p_thresh, comparison_name = "DE.tha05.vs.tha2p4m.bystander.CoarseCellType")
+
+DE.tha2p4m.high.vs.low.Astrocyte_SignificantGeneCounts				                <- CountDE(DE_tbl = DE.tha2p4m.high.vs.low.Astrocyte,                     p_cutoff = p_thresh, comparison_name = "DE.tha2p4m.high.vs.low.Astrocyte")
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.path_SignificantGeneCounts			    <- CountDE(DE_tbl = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2,           p_cutoff = p_thresh, comparison_name = "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2")
+DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2_SignificantGeneCounts			<- CountDE(DE_tbl = DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2,   p_cutoff = p_thresh, comparison_name = "DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2")
+
+CellType_SignificantGeneCounts       <- bind_rows(DE.tha05.vs.NI.CellType_SignificantGeneCounts,
+                                                  DE.tha5.vs.NI.CellType_SignificantGeneCounts,
+                                                  DE.tha05.vs.NI.CellType_SignificantGeneCounts,
+                                                  DE.tha2p4m.vs.NI.CellType_SignificantGeneCounts,
+                                                  DE.tha05.vs.tha5.CellType_SignificantGeneCounts,
+                                                  DE.tha2p4m.vs.tha05.CellType_SignificantGeneCounts,
+                                                  DE.tha5.noinfected.vs.NI.CellType_SignificantGeneCounts,
+                                                  DE.tha05.noinfected.vs.NI.CellType_SignificantGeneCounts,
+                                                  DE.tha05.vs.tha2p4m.bystander.CellType_SignificantGeneCounts)
+
+CoarseCellType_SignificantGeneCounts <- bind_rows(DE.tha05.vs.NI.CoarseCellType_SignificantGeneCounts,
+                                                  DE.tha5.vs.NI.CoarseCellType_SignificantGeneCounts,
+                                                  DE.tha5.noinfected.vs.NI.CoarseCellType_SignificantGeneCounts,
+                                                  DE.tha2p4m.vs.NI.CoarseCellType_SignificantGeneCounts,
+                                                  DE.tha2p4m.vs.tha05.CoarseCellType_SignificantGeneCounts,
+                                                  DE.tha05.vs.tha5.CoarseCellType_SignificantGeneCounts,
+                                                  DE.tha05.noinfected.vs.NI.CoarseCellType_SignificantGeneCounts,
+                                                  DE.tha2p4m.noinfected.vs.NI.CoarseCellType_SignificantGeneCounts,
+                                                  DE.tha2p4m.noinfected.vs.NI.CoarseCellType_SignificantGeneCounts,
+                                                  DE.tha05.vs.tha2p4m.bystander.CoarseCellType_SignificantGeneCounts)
+
+Astrocyte_SignificantGeneCounts       <- bind_rows(DE.tha2p4m.high.vs.low.Astrocyte_SignificantGeneCounts, 
+                                                   DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.path_SignificantGeneCounts,
+                                                   DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2_SignificantGeneCounts)
+
+#save SignificantGeneCounts summaries
+# sgc.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/de/significant_gene_counts_summaries/"
+
+# saveRDS(object = CellType_SignificantGeneCounts,                         file = paste0(sgc.path, "CellType_SignificantGeneCounts_pcutoff_",              p_thresh, ".RDS"))
+# saveRDS(object = CoarseCellType_SignificantGeneCounts,                   file = paste0(sgc.path, "CoarseCellType_SignificantGeneCounts_",                p_thresh, ".RDS"))
+# saveRDS(object = Astrocyte_SignificantGeneCounts,                        file = paste0(sgc.path, "Astrocyte_SignificantGeneCounts",                      p_thresh, ".RDS"))
+
+
+#DE Gene counts
+DE.tha05.vs.NI.CoarseCellType_SignificantGeneCounts_NvsA <-
+  DE.tha05.vs.NI.CoarseCellType_SignificantGeneCounts %>%
+  filter(cell_type %in% c("Neuron", "Astrocyte"))
+
+DE.tha2p4m.vs.tha05.CoarseCellType_SignificantGeneCounts_NvsA <-
+  DE.tha2p4m.vs.tha05.CoarseCellType_SignificantGeneCounts %>%
+  filter(cell_type %in% c("Neuron", "Astrocyte"))
+
+
+#Evaluate Neuron / Astrocyte DE Gene Overlab
+#DE.tha05.vs.NI.CoarseCellType
+DE.tha05.vs.NI.Astrocyte_Neuron_SharedGenes <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type %in% c("Astrocyte", "Neuron")) %>%
+  filter(p_val_adj < p_thresh)%>%
+  mutate(FC_direction = case_when(avg_logFC > 0 ~ "up", 
+                                  avg_logFC < 0 ~ "down")) %>%
+  group_by(FC_direction) %>%
+  count(gene)
+
+table(DE.tha05.vs.NI.Astrocyte_Neuron_SharedGenes$n)
+
+#DE.tha2p4m.vs.tha05.CoarseCellType
+DE.tha2p4m.vs.tha05.Astrocyte_Neuron_SharedGenes <-
+  DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  filter(cell_type %in% c("Astrocyte", "Neuron")) %>%
+  filter(p_val_adj < p_thresh)%>%
+  mutate(FC_direction = case_when(avg_logFC > 0 ~ "up", 
+                                  avg_logFC < 0 ~ "down")) %>%
+  group_by(FC_direction) %>%
+  count(gene)
+
+table(DE.tha2p4m.vs.tha05.Astrocyte_Neuron_SharedGenes$n)
+
+
+#Evaluate Neuron / Astrocyte DE Gene Correlation
+#DE.tha05.vs.NI.CoarseCellType
+DE.tha05.vs.NI.Astrocyte_GeneList <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type == "Astrocyte") %>%
+  filter(p_val_adj < p_thresh) %>%
+  pull(gene)
+
+DE.tha05.vs.NI.Neuron_GeneList <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type == "Neuron") %>%
+  filter(p_val_adj < p_thresh) %>%
+  pull(gene)
+
+DE.tha05.vs.NI.Astrocyte <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type == "Astrocyte") %>%
+  filter(gene %in% union(DE.tha05.vs.NI.Astrocyte_GeneList, DE.tha05.vs.NI.Neuron_GeneList)) %>%
+  arrange(union(DE.tha05.vs.NI.Astrocyte_GeneList, DE.tha05.vs.NI.Neuron_GeneList)) %>%
+  mutate(avg_logFC_Astrocyte = avg_logFC) %>%
+  select(gene, avg_logFC_Astrocyte)
+
+DE.tha05.vs.NI.Neuron <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type == "Neuron") %>%
+  filter(gene %in% union(DE.tha05.vs.NI.Astrocyte_GeneList, DE.tha05.vs.NI.Neuron_GeneList)) %>%
+  arrange(union(DE.tha05.vs.NI.Astrocyte_GeneList, DE.tha05.vs.NI.Neuron_GeneList)) %>%
+  mutate(avg_logFC_Neuron = avg_logFC) %>%
+  select(gene, avg_logFC_Neuron)
+
+DE.tha05.vs.NI.Neuron_vs_Astrocyte_LogFC <- full_join(DE.tha05.vs.NI.Neuron, DE.tha05.vs.NI.Astrocyte, by = "gene")
+DE.tha05.vs.NI.Neuron_vs_Astrocyte.cor   <- cor(x = DE.tha05.vs.NI.Neuron_vs_Astrocyte_LogFC$avg_logFC_Neuron, y = DE.tha05.vs.NI.Neuron_vs_Astrocyte_LogFC$avg_logFC_Astrocyte)
+
+
+#DE.tha2p4m.vs.tha05.CoarseCellType
+DE.tha2p4m.vs.tha05.Astrocyte_GeneList <-
+  DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  filter(cell_type == "Astrocyte") %>%
+  filter(p_val_adj < p_thresh) %>%
+  pull(gene)
+
+DE.tha2p4m.vs.tha05.Neuron_GeneList <-
+  DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  filter(cell_type == "Neuron") %>%
+  filter(p_val_adj < p_thresh) %>%
+  pull(gene)
+
+DE.tha2p4m.vs.tha05.Astrocyte <-
+  DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  filter(cell_type == "Astrocyte") %>%
+  filter(gene %in% union(DE.tha2p4m.vs.tha05.Astrocyte_GeneList, DE.tha2p4m.vs.tha05.Neuron_GeneList)) %>%
+  arrange(union(DE.tha2p4m.vs.tha05.Astrocyte_GeneList, DE.tha2p4m.vs.tha05.Neuron_GeneList)) %>%
+  mutate(avg_logFC_Astrocyte = avg_logFC) %>%
+  select(gene, avg_logFC_Astrocyte)
+
+DE.tha2p4m.vs.tha05.Neuron <-
+  DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  filter(cell_type == "Neuron") %>%
+  filter(gene %in% union(DE.tha2p4m.vs.tha05.Astrocyte_GeneList, DE.tha2p4m.vs.tha05.Neuron_GeneList)) %>%
+  arrange(union(DE.tha2p4m.vs.tha05.Astrocyte_GeneList, DE.tha2p4m.vs.tha05.Neuron_GeneList)) %>%
+  mutate(avg_logFC_Neuron = avg_logFC) %>%
+  select(gene, avg_logFC_Neuron)
+
+DE.tha2p4m.vs.tha05.Neuron_vs_Astrocyte_LogFC <- full_join(DE.tha2p4m.vs.tha05.Neuron, DE.tha2p4m.vs.tha05.Astrocyte , by = "gene")
+DE.tha2p4m.vs.tha05.Neuron_vs_Astrocyte.cor   <- cor(x = DE.tha2p4m.vs.tha05.Neuron_vs_Astrocyte_LogFC$avg_logFC_Neuron, y = DE.tha2p4m.vs.tha05.Neuron_vs_Astrocyte_LogFC$avg_logFC_Astrocyte)
+
+```
+
+#3a. DE Plotting - Define Paths
+```{r differential expression plotting, echo = FALSE}
+
+#define the de data save path
+de.plot.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/5_host_gene_expression/"
+```
+
+
+
+#3b. DE Plotting - Volcano Plots 
+```{r Volcano Plots, echo=FALSE}
+
+### Volcano Plots with Top Genes Visualized
+
+CT_Neurons_and_Astrocytes <- c('Neuron', 'Astrocyte')
+
+#################################################################
+###Main Figures (top)
+#################################################################
+#Infected NI vs.tha05 -  Neurons & Astrocytes (Karl = fig.3.a)
+DE.tha05.vs.NI.CoarseCellType %>%
+  {
+  
+  temp <- filter(.,
+    cell_type %in% c('Astrocyte', 'Neuron')
+    ) %>%
+    mutate(cell_type = factor(cell_type, levels = c('Neuron', 'Astrocyte')))
+  
+  colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+  
+  labelgenes <- temp %>%
+    mutate(n = setNames(c(10,10,10), unique(cell_type))[cell_type]) %>%
+    group_by(cell_type) %>%
+    arrange(desc(-log(p_val_adj)), .by_group=TRUE) %>%
+    filter(row_number() <= n[1]) %>%
+    dplyr::select(-n) %>%
+    bind_rows(
+      filter(temp, cell_type == 'Astrocyte', avg_logFC < 0) %>%
+        slice_max(-log10(p_val_adj), n = 4)
+    )
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    facet_wrap(~cell_type)+
+    geom_hline(yintercept=2, linetype = 2)+
+    scale_x_continuous(limits = c(-5.5, 5.5))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank()
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI
+
+
+#gene reference version
+tha05vsNI_labels <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=20)
+DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI_reference <- DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI + tha05vsNI_labels
+
+#Save
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI.png"),            DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI,           device='png', width = 5.16, height=2.25, units='in', dpi=600)
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI_reference.png"),  DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI_reference, device='png', width = 5.16, height=2.25, units='in', dpi=600)
+
+
+
+
+
+#Infected tha2p4m.vs.tha05 -  Neurons & Astrocytes (Karl = fig.3.c)
+DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  {
+  
+  temp <- filter(.,
+    cell_type %in% c('Astrocyte', 'Neuron')
+    ) %>%
+    mutate(cell_type = factor(cell_type, levels = c('Neuron', 'Astrocyte')))
+  
+  colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+  
+  labelgenes <- temp %>%
+    mutate(n = setNames(c(10,10,10), unique(cell_type))[cell_type]) %>%
+    group_by(cell_type) %>%
+    arrange(desc(-log(p_val_adj)), .by_group=TRUE) %>%
+    filter(row_number() <= n[1]) %>%
+    dplyr::select(-n) %>%
+    bind_rows(
+      filter(temp, cell_type == 'Astrocyte', avg_logFC < 0) %>%
+        slice_max(-log10(p_val_adj), n = 4)
+    )
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    facet_wrap(~cell_type)+
+    geom_hline(yintercept=2, linetype = 2)+
+    scale_x_continuous(limits = c(-5.5, 5.5))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank()
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05
+
+
+#gene reference version
+tha2p4mvstha05_labels <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=20)
+DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05_reference <- DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05 + tha2p4mvstha05_labels
+
+#Save
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05.png"),           DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05,           device='png', width = 5.16, height=2.25, units='in', dpi=600)
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05_reference.png"), DE_VolcanoPlot_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05_reference, device='png', width = 5.16, height=2.25, units='in', dpi=600)
+
+#################################################################
+###Main Figures (bottom)
+#################################################################
+
+
+
+
+
+#################################################################
+###Supplemental Figures (top)
+#################################################################
+
+#Infected tha05.vs.NI - No Microglia (Karl = fig.3.a.supp_top)
+DE.tha05.vs.NI.CellType %>%
+  {
+  
+  temp <- filter(.,
+    cell_type != c('Microglia'),
+    # -log10(p_val_adj) < 25
+    # cell_type == 'Microglia'
+    # !gene %in% c('DYNLL1', 'DYNLL2', 'NRAV')
+    # -log(p_val_adj) < 20
+    ) %>%
+    mutate(cell_type = factor(cell_type, levels = c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte', 'Mitotic', 'hNSC')))
+  
+  colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+  print(table(colorgenes$cell_type))
+  print(sum(table(colorgenes$gene) > 1))
+  
+  labelgenes <- temp %>%
+    mutate(n = setNames(c(6,5,8,8,2), unique(cell_type))[cell_type]) %>%
+    group_by(cell_type) %>%
+    arrange(desc(-log(p_val_adj)), .by_group=TRUE) %>%
+    filter(row_number() <= n[1]) %>%
+    dplyr::select(-n) %>%
+    bind_rows(
+      # filter(temp, cell_type == 'Astrocyte', gene == 'NRAV')
+    )
+  
+  # topgenes <- filter(temp, -log10(p_val_adj) > 2)
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    facet_wrap(~cell_type, nrow = 1)+
+    geom_hline(yintercept=2, linetype = 2)+
+    # scale_x_continuous(limits = c(-7.5, 7.5))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank(),
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_CellType_NoMicroglia_tha05vsNI
+
+#gene reference version
+tha05vsNI_labels_NoMicroglia <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=20)
+DE_VolcanoPlot_CellType_NoMicroglia_tha05vsNI_reference <- DE_VolcanoPlot_CellType_NoMicroglia_tha05vsNI + tha05vsNI_labels_NoMicroglia
+
+#Save
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CellType_NoMicroglia_tha05vsNI.png"),           DE_VolcanoPlot_CellType_NoMicroglia_tha05vsNI,           device='png', width = 5.16, height=1.5, units='in', dpi=600)
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CellType_NoMicroglia_tha05vsNI_reference.png"), DE_VolcanoPlot_CellType_NoMicroglia_tha05vsNI_reference, device='png', width = 5.16, height=1.5, units='in', dpi=600)
+
+
+
+
+
+#Infected tha2p4m.vs.tha05 - No Microglia (Karl = fig.3.a.supp_middle)
+DE.tha2p4m.vs.tha05.CellType %>%
+  {
+  
+  temp <- filter(.,
+    cell_type != c('Microglia'),
+    # -log10(p_val_adj) < 25
+    # cell_type == 'Microglia'
+    # !gene %in% c('DYNLL1', 'DYNLL2', 'NRAV')
+    # -log(p_val_adj) < 20
+    ) %>%
+    mutate(cell_type = factor(cell_type, levels = c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte', 'Mitotic', 'hNSC')))
+  
+  colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+  print(table(colorgenes$cell_type))
+  print(sum(table(colorgenes$gene) > 1))
+  
+  labelgenes <- temp %>%
+    mutate(n = setNames(c(6,5,8,8,2), unique(cell_type))[cell_type]) %>%
+    group_by(cell_type) %>%
+    arrange(desc(-log(p_val_adj)), .by_group=TRUE) %>%
+    filter(row_number() <= n[1]) %>%
+    dplyr::select(-n) %>%
+    bind_rows(
+      # filter(temp, cell_type == 'Astrocyte', gene == 'NRAV')
+    )
+  
+  # topgenes <- filter(temp, -log10(p_val_adj) > 2)
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    facet_wrap(~cell_type, nrow = 1)+
+    geom_hline(yintercept=2, linetype = 2)+
+    # scale_x_continuous(limits = c(-7.5, 7.5))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank(),
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_CellType_NoMicroglia_tha2p4mvstha05 
+
+#gene reference version
+tha2p4mvstha05_labels_NoMicroglia <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=20)
+DE_VolcanoPlot_CellType_NoMicroglia_tha2p4mvstha05_reference <- DE_VolcanoPlot_CellType_NoMicroglia_tha2p4mvstha05 + tha2p4mvstha05_labels_NoMicroglia
+
+#Save
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CellType_NoMicroglia_tha2p4mvstha05.png"),           DE_VolcanoPlot_CellType_NoMicroglia_tha2p4mvstha05,           device='png', width = 5.16, height=1.5, units='in', dpi=600)
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CellType_NoMicroglia_tha2p4mvstha05_reference.png"), DE_VolcanoPlot_CellType_NoMicroglia_tha2p4mvstha05_reference, device='png', width = 5.16, height=1.5, units='in', dpi=600)
+
+
+
+
+
+#Infected tha05.vs.tha5 - No Microglia (Karl = fig.3.a.supp_bottom)
+DE.tha05.vs.tha5.CellType %>%
+  {
+  
+  temp <- filter(.,
+    cell_type != c('Microglia'),
+    # -log10(p_val_adj) < 25
+    # cell_type == 'Microglia'
+    # !gene %in% c('DYNLL1', 'DYNLL2', 'NRAV')
+    # -log(p_val_adj) < 20
+    ) %>%
+    mutate(cell_type = factor(cell_type, levels = c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte', 'Mitotic', 'hNSC')))
+  
+  colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+  print(table(colorgenes$cell_type))
+  print(sum(table(colorgenes$gene) > 1))
+  
+  labelgenes <- temp %>%
+    mutate(n = setNames(c(6,5,8,8,2), unique(cell_type))[cell_type]) %>%
+    group_by(cell_type) %>%
+    arrange(desc(-log(p_val_adj)), .by_group=TRUE) %>%
+    filter(row_number() <= n[1]) %>%
+    dplyr::select(-n) %>%
+    bind_rows(
+      # filter(temp, cell_type == 'Astrocyte', gene == 'NRAV')
+    )
+  
+  # topgenes <- filter(temp, -log10(p_val_adj) > 2)
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    facet_wrap(~cell_type, nrow = 1)+
+    geom_hline(yintercept=2, linetype = 2)+
+    # scale_x_continuous(limits = c(-7.5, 7.5))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank(),
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_CellType_NoMicroglia_tha05vstha5 
+
+#gene reference version
+tha05vstha5_labels <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=20)
+DE_VolcanoPlot_CellType_NoMicroglia_tha05vstha5_reference <- DE_VolcanoPlot_CellType_NoMicroglia_tha05vstha5 + tha05vstha5_labels
+
+#Save
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CellType_NoMicroglia_tha05vstha5.png"),           DE_VolcanoPlot_CellType_NoMicroglia_tha05vstha5,           device='png', width = 5.16, height=1.5, units='in', dpi=600)
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CellType_NoMicroglia_tha05vstha5_reference.png"), DE_VolcanoPlot_CellType_NoMicroglia_tha05vstha5_reference, device='png', width = 5.16, height=1.5, units='in', dpi=600)
+
+
+
+#DE.tha05.noinfected.vs.NI.CellType - No Microglia (NEW BYSTANDER ANALYSIS)
+DE.tha05.noinfected.vs.NI.CellType %>%
+  {
+  
+  temp <- filter(.,
+    cell_type != c('Microglia'),
+    # -log10(p_val_adj) < 25
+    # cell_type == 'Microglia'
+    # !gene %in% c('DYNLL1', 'DYNLL2', 'NRAV')
+    # -log(p_val_adj) < 20
+    ) %>%
+    mutate(cell_type = factor(cell_type, levels = c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte', 'Mitotic', 'hNSC')))
+  
+  colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+  print(table(colorgenes$cell_type))
+  print(sum(table(colorgenes$gene) > 1))
+  
+  labelgenes <- temp %>%
+    mutate(n = setNames(c(6,5,8,8,2), unique(cell_type))[cell_type]) %>%
+    group_by(cell_type) %>%
+    arrange(desc(-log(p_val_adj)), .by_group=TRUE) %>%
+    filter(row_number() <= n[1]) %>%
+    dplyr::select(-n) %>%
+    bind_rows(
+      # filter(temp, cell_type == 'Astrocyte', gene == 'NRAV')
+    )
+  
+  # topgenes <- filter(temp, -log10(p_val_adj) > 2)
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    facet_wrap(~cell_type, nrow = 1)+
+    geom_hline(yintercept=2, linetype = 2)+
+    # scale_x_continuous(limits = c(-7.5, 7.5))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank(),
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_CellType_NoMicroglia_tha05noinfectedvsNI
+
+#gene reference version
+tha05noinfectedvsNI_labels <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=20)
+DE_VolcanoPlot_CellType_NoMicroglia_tha05noinfectedvsNI_reference <- DE_VolcanoPlot_CellType_NoMicroglia_tha05noinfectedvsNI + tha05noinfectedvsNI_labels
+
+#Save
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CellType_NoMicroglia_tha05noinfectedvsNI.png"),           DE_VolcanoPlot_CellType_NoMicroglia_tha05noinfectedvsNI,           device='png', width = 5.16, height=1.5, units='in', dpi=600)
+# ggsave(paste0(de.plot.path, "DE_VolcanoPlot_CellType_NoMicroglia_tha05noinfectedvsNI_reference.png"), DE_VolcanoPlot_CellType_NoMicroglia_tha05noinfectedvsNI_reference, device='png', width = 5.16, height=1.5, units='in', dpi=600)
+
+
+#################################################################
+###Supplemental Figures (bottom)
+#################################################################
+
+```
+
+#3c. DE Plotting - Fold-Change Magnitude Scatter Plots (Neurons vs Astrocytes)
+```{r FC Magnitude Scatter Plots, echo=FALSE}
+
+#Karl's Log2-Fold Change Plotting function ("mag_plots"). ds = DE results
+mag_plots <- function(ds)
+  {
+  
+  threshold <- 1e-02
+  
+  genes_to_include <- filter(ds, p_val_adj < threshold,
+    cell_type %in% c('Astrocyte', 'Neuron'))$gene %>% unique()
+  
+  genelevels <- FetchData(tha.seurat, genes_to_include) %>%
+    merge(tha.summary_log10, by.x=0, by.y='CBC') %>%
+    group_by(CoarseCellType, Experiment) %>%
+    summarise(across(all_of(genes_to_include), mean), .groups="drop") %>%
+    filter(CoarseCellType %in% c('Neuron', 'Astrocyte')) %>%
+    unite(cond_exp, CoarseCellType, Experiment) %>%
+    {
+      df_t <- dplyr::select(., -cond_exp) %>% data.table::transpose()
+      colnames(df_t) <- .$cond_exp
+      df_t$gene <- colnames(.)[-1]
+      as_tibble(df_t)
+    }
+  
+  temp <- filter(ds, gene %in% genes_to_include, cell_type %in% c('Astrocyte', 'Neuron')) %>%
+    pivot_wider(names_from=cell_type, values_from=c(avg_logFC, p_val, p_val_adj)) %>%
+    merge( rownames_to_column(tha.seurat@assays$RNA@meta.features, var = 'gene'), by = 'gene' ) %>%
+    mutate(
+      sig = case_when(
+        (p_val_adj_Neuron < threshold) & (p_val_adj_Astrocyte < threshold) ~ 'Both',
+        (p_val_adj_Neuron < threshold) ~ 'Neurons',
+        (p_val_adj_Astrocyte < threshold) ~ 'Astrocytes',
+        TRUE ~ 'none'
+      ),
+      sig = factor(sig, levels = c('Astrocytes', 'Neurons', 'Both'))
+    ) %>%
+    merge(
+      genelevels, by = 'gene'
+    ) %>%
+    mutate(size_n = Astrocyte_NI_0 - Neuron_NI_0) %>%
+    mutate(size_n = size_n + abs(min(size_n))) %>%
+    arrange(sig)
+  # } -> temp.tha
+  labelgenes <- temp %>%
+    filter(
+      sig != 'astrocyte'
+    ) %>%
+    bind_rows(
+      filter(temp, avg_logFC_Astrocyte < -0.8),
+      filter(temp, avg_logFC_Astrocyte > 3),
+    )
+
+  ggplot(temp, aes(
+    avg_logFC_Neuron,
+    avg_logFC_Astrocyte,
+    color = sig,
+    size = linMap(Neuron_2P4M_05, 0.0001, 4.41),
+    label=if_else(
+      gene %in% labelgenes$gene,
+      gene, NA
+    )))+
+    geom_point(alpha = 0.5)+
+    geom_point(alpha = 1, shape = 21)+
+    scale_color_manual(values = c(Astrocyte_color, Neuron_color, "#1b75bb"))+
+    theme_bw()+
+    theme(
+      # axis.title=element_blank(),
+      # legend.position='none'
+    )+
+    # scale_x_continuous(limits = c(-5.2, 5.2))+
+    # scale_y_continuous(limits = c(-5.2, 5.2))+
+    scale_size(range = c(0.2, 5))+
+    geom_vline(xintercept=0, linetype=2)+
+    geom_hline(yintercept=0, linetype=2)+
+    labs(x = 'Avg Log_2 FC Neuron',
+      y = 'Avg Log_2 FC Astrocyte',
+      size = 'Neuron\nBase\nExpr.',
+      color = 'Meets Stat.\nSig. In')
+  }
+
+DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI      <- mag_plots(DE.tha05.vs.NI.CoarseCellType) #fig.3.b.logFC
+DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05 <- mag_plots(DE.tha2p4m.vs.tha05.CoarseCellType) #fig.3.d.logFC
+
+#assign text labels to gene points
+labels <- ggrepel::geom_text_repel(size = 3, min.segment.length=0.1, force=2, max.overlaps=20)
+
+DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI_reference      <- DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI + labels
+DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05_reference <- DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05 + labels
+
+#Save
+
+#DE.tha05.vs.NI.CoarseCellType
+# ggsave(paste0(de.plot.path, "DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI.png"),
+#       DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI + theme(legend.position='none', #axis.title=element_blank()), device='png', width = 2.25, height=2.25, units='in', dpi=600)
+
+# ggsave(paste0(de.plot.path, "DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI_reference.png"), 
+#     DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha05vsNI_reference + ggtitle('NI vs Tha05'), device='png', #width = 8, height=8, units='in', dpi=600)
+
+#DE.tha2p4m.vs.tha05.CoarseCellType
+# ggsave(paste0(de.plot.path, "DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05.png"),
+#       DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05 + theme(legend.position='none', #axis.title=element_blank()), device='png', width = 2.25, height=2.25, units='in', dpi=600)
+
+# ggsave(paste0(de.plot.path, "DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05_reference.png"), 
+#       DE_Log2FoldChangeScatter_CoarseCellType_Neurons_and_Astrocytes_tha2p4mvstha05_reference + ggtitle('NI vs Tha05'), #device='png', width = 8, height=8, units='in', dpi=600)
+
+
+
+```
+
+
+#3d. DE Plotting - Violin Plots of key genes
+```{r}
+#genes_to_show <- c('DYNLL1', 'STAT1', 'ISG15', 'SLC7A11')
+genes_to_show <- c('DYNLL1', 'DYNLL2', 'ISG15', 'IRF9', 'STAT1')
+
+#use center, scaled log transformed expression data
+FetchData(tha.seurat, genes_to_show, slot='data') %>%
+  rownames_to_column(var = 'CBC') %>%
+  merge(tha.celltype.infections.summary, by = 'CBC') %>%
+  pivot_longer(all_of(genes_to_show), names_to='gene') %>%
+  mutate(gene = factor(gene, levels = genes_to_show)) %>%
+  filter(CoarseCellType == 'Neuron'| CoarseCellType == 'Astrocyte')%>%
+  mutate(Experiment = factor(Experiment, levels = c('NI_0', 'Tha_05', 'Tha_5', '2P4M_05'))) %>%
+  slice_sample(n=20000)%>%
+  ggplot(aes(Experiment, value, color = Experiment, fill = Experiment))+
+    geom_point(size=0.2, position = position_jitter(width=0.4, height=0.2), color = "black", alpha = 0.4)+
+    geom_violin(scale = 'area', , alpha = 0.6)+
+    scale_color_manual(values = c(Uninfected_color, Tha_color, Tha5_color, Tha2P4M_color))+
+    scale_fill_manual(values = c(Uninfected_color, Tha_color, Tha5_color, Tha2P4M_color))+
+    facet_wrap( CoarseCellType ~ gene, nrow = 2)+
+    theme(
+      strip.background=element_blank(),
+      strip.text=element_blank()
+    ) +
+    ggtitle(paste(genes_to_show,collapse=',')) -> ViolinPlotAcrossExperiments_Neurons_and_Astrocytes_supp.specificgenes
+
+ggsave(paste0(de.plot.path, "ViolinPlotAcrossExperiments_Neurons_and_Astrocytes_supp.specificgenes.png"), ViolinPlotAcrossExperiments_Neurons_and_Astrocytes_supp.specificgenes, device='png', width = 12, height=5.5, units='in', dpi=600)
+
+#use expression data scaled to 1E5 transcripts/cell
+FetchData(tha.seurat_RC1E5, genes_to_show, slot='data') %>%
+  rownames_to_column(var = 'CBC') %>%
+  merge(tha.celltype.infections.summary, by = 'CBC') %>%
+  pivot_longer(all_of(genes_to_show), names_to='gene') %>%
+  mutate(gene = factor(gene, levels = genes_to_show)) %>%
+  filter(CoarseCellType == 'Neuron'| CoarseCellType == 'Astrocyte')%>%
+  mutate(Experiment = factor(Experiment, levels = c('NI_0', 'Tha_05', 'Tha_5', '2P4M_05'))) %>%
+  slice_sample(n=20000)%>%
+  ggplot(aes(Experiment, value, color = Experiment, fill = Experiment))+
+    geom_point(size=0.2, position = position_jitter(width=0.4, height=0.2), color = "black", alpha = 0.4)+
+    geom_violin(scale = 'area', , alpha = 0.6)+
+    scale_color_manual(values = c(Uninfected_color, Tha_color, Tha5_color, Tha2P4M_color))+
+    scale_fill_manual(values = c(Uninfected_color, Tha_color, Tha5_color, Tha2P4M_color))+
+    facet_wrap( CoarseCellType ~ gene, nrow = 2, scales = "free_y")+
+    theme(
+      strip.background=element_blank(),
+      strip.text=element_blank()
+    ) +
+    ggtitle(paste(genes_to_show,collapse=',')) -> ViolinPlotAcrossExperiments_Neurons_and_Astrocytes_supp.specificgenes_RC1E5
+
+ggsave(paste0(de.plot.path, "ViolinPlotAcrossExperiments_Neurons_and_Astrocytes_supp.specificgenes_RC1E5.png"), ViolinPlotAcrossExperiments_Neurons_and_Astrocytes_supp.specificgenes_RC1E5, device='png', width = 12, height=5.5, units='in', dpi=600)
+
+parp.genes <- c("TLR5", "TLR9", "TLR10", "TLR1", "TLR6", "TLR2", "TLR3", "TLR4", "TLR7", "TLR8", "DDX58", "MAVS")
+#use center, scaled log transformed expression data
+FetchData(tha.seurat, parp.genes, slot='data') %>%
+  rownames_to_column(var = 'CBC') %>%
+  merge(tha.celltype.infections.summary, by = 'CBC') %>%
+  pivot_longer(all_of(parp.genes), names_to='gene') %>%
+  mutate(gene = factor(gene, levels = parp.genes)) %>%
+  filter(CoarseCellType == 'Neuron'| CoarseCellType == 'Astrocyte')%>%
+  mutate(Experiment = factor(Experiment, levels = c('NI_0', 'Tha_05', 'Tha_5', '2P4M_05'))) %>%
+  slice_sample(n=20000)%>%
+  ggplot(aes(Experiment, value, color = Experiment, fill = Experiment))+
+    geom_point(size=0.2, position = position_jitter(width=0.4, height=0.2), color = "black", alpha = 0.4)+
+    geom_violin(scale = 'area', , alpha = 0.6)+
+    scale_color_manual(values = c(Uninfected_color, Tha_color, Tha5_color, Tha2P4M_color))+
+    scale_fill_manual(values = c(Uninfected_color, Tha_color, Tha5_color, Tha2P4M_color))+
+    facet_wrap( CoarseCellType ~ gene, nrow = 2)+
+    theme(
+      strip.background=element_blank(),
+      strip.text=element_blank()
+    ) +
+    ggtitle(paste(parp.genes,collapse=',')) -> ViolinPlotAcrossExperiments_Neurons_and_Astrocytes_supp.parp.genes
+
+ggsave(paste0(de.plot.path, "ViolinPlotAcrossExperiments_Neurons_and_Astrocytes_supp.parp.genes.png"), ViolinPlotAcrossExperiments_Neurons_and_Astrocytes_supp.parp.genes, device='png', width = 12, height=5.5, units='in', dpi=600)
+```
+
+#4. GSEA Analysis & Plotting
+```{r GSEA, echo=FALSE}
+
+#Simplify GO categroies
+GSEA.tha2p4m.vs.tha05.CoarseCellType.a_simplify       <- clusterProfiler::simplify(GSEA.tha2p4m.vs.tha05.CoarseCellType.a, cutoff=0.7, by="p.adjust", select_fun=min)
+GSEA.tha2p4m.vs.tha05.CoarseCellType.n_simplify       <- clusterProfiler::simplify(GSEA.tha2p4m.vs.tha05.CoarseCellType.n, cutoff=0.7, by="p.adjust", select_fun=min)
+
+View(GSEA.tha2p4m.vs.tha05.CoarseCellType.a_simplify@result)
+View(GSEA.tha2p4m.vs.tha05.CoarseCellType.n_simplify@result)
+
+#Astrocytes
+GSEA.tha2p4m.vs.tha05.CoarseCellType.a.plot           <- enrichplot::gseaplot2(GSEA.tha2p4m.vs.tha05.CoarseCellType.a, geneSetID = 1:10, ES_geom = "line")
+GSEA.tha2p4m.vs.tha05.CoarseCellType.a_simplify.plot  <- enrichplot::gseaplot2(GSEA.tha2p4m.vs.tha05.CoarseCellType.a_simplify, geneSetID = 1:10, ES_geom = "line")
+
+# GSEA.tha2p4m.vs.tha05.CoarseCellType.a1to12.plot           <- enrichplot::gseaplot2(GSEA.tha2p4m.vs.tha05.CoarseCellType.a, geneSetID = 1:20, ES_geom = "line")
+# GSEA.tha2p4m.vs.tha05.CoarseCellType.a1to12_simplify.plot  <- enrichplot::gseaplot2(GSEA.tha2p4m.vs.tha05.CoarseCellType.a_simplify, geneSetID = c(1:5, 15:20), ES_geom = "line")
+
+#Neurons
+GSEA.tha2p4m.vs.tha05.CoarseCellType.n.plot           <- enrichplot::gseaplot2(GSEA.tha2p4m.vs.tha05.CoarseCellType.n, geneSetID = 1:10, ES_geom = "line")
+GSEA.tha2p4m.vs.tha05.CoarseCellType.n_simplify.plot  <- enrichplot::gseaplot2(GSEA.tha2p4m.vs.tha05.CoarseCellType.n_simplify, geneSetID = 1:10, ES_geom = "line")
+
+#Saving
+ggsave(paste0(de.plot.path, "gsea/GSEA.tha2p4m.vs.tha05.CoarseCellType.a.plot.png"), 
+       GSEA.tha2p4m.vs.tha05.CoarseCellType.a.plot, device='png', width = 8, height=8, units='in', dpi=600)
+
+ggsave(paste0(de.plot.path, "gsea/GSEA.tha2p4m.vs.tha05.CoarseCellType.a_simplify.plot.png"), 
+       GSEA.tha2p4m.vs.tha05.CoarseCellType.a_simplify.plot, device='png', width = 8, height=8, units='in', dpi=600)
+
+ggsave(paste0(de.plot.path, "gsea/GSEA.tha2p4m.vs.tha05.CoarseCellType.n.plot.png"), 
+       GSEA.tha2p4m.vs.tha05.CoarseCellType.a.plot, device='png', width = 8, height=8, units='in', dpi=600)
+
+ggsave(paste0(de.plot.path, "gsea/GSEA.tha2p4m.vs.tha05.CoarseCellType.n_simplify.plot.png"), 
+       GSEA.tha2p4m.vs.tha05.CoarseCellType.a_simplify.plot, device='png', width = 8, height=8, units='in', dpi=600)
+
+
+```
+
+#5. DESCRIPTIVE STATISTICS AND TESTING
+```{r results descriptions, echo = F}
+
+#Evaluate Tha2P4M Neuron UP intersect with Tha Astrocyte DOWN
+#DE.tha05.vs.NI.CoarseCellType
+DE.tha05.vs.NI.Astrocyte_Astrocyte_DOWN <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type == "Astrocyte", p_val_adj < p_thresh, avg_logFC < 0 ) 
+
+#DE.tha2p4m.vs.tha05.CoarseCellType
+DE.tha2p4m.vs.tha05.Astrocyte_Neuron_UP <-
+  DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  filter(cell_type == "Neuron", p_val_adj < p_thresh, avg_logFC > 0 )
+
+intersect(DE.tha2p4m.vs.tha05.Astrocyte_Neuron_UP$gene, DE.tha05.vs.NI.Astrocyte_Astrocyte_DOWN$gene)
+
+#DE.tha2p4m.vs.tha05.CoarseCellType
+DE.tha2p4m.vs.tha05.Astrocyte_Neuron_SharedGenes <-
+  DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  filter(cell_type %in% c("Astrocyte", "Neuron")) %>%
+  filter(p_val_adj < p_thresh)%>%
+  mutate(FC_direction = case_when(avg_logFC > 0 ~ "up", 
+                                  avg_logFC < 0 ~ "down")) %>%
+  group_by(FC_direction) %>%
+  count(gene)
+
+table(DE.tha2p4m.vs.tha05.Astrocyte_Neuron_SharedGenes$n)
+
+DE.tha2p4m.vs.tha05.Astrocyte_UP <-
+  DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  filter(cell_type == "Astrocyte", p_val_adj < p_thresh, avg_logFC > 0 )
+
+DE.tha2p4m.vs.tha05.Astrocyte_DOWN <-
+  DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  filter(cell_type == "Astrocyte", p_val_adj < p_thresh, avg_logFC < 0 )
+
+DE.tha2p4m.vs.tha05.Neuron_UP <-
+  DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  filter(cell_type == "Neuron", p_val_adj < p_thresh, avg_logFC > 0 )
+
+DE.tha2p4m.vs.tha05.Neuron_DOWN <-
+  DE.tha2p4m.vs.tha05.CoarseCellType %>%
+  filter(cell_type == "Neuron", p_val_adj < p_thresh, avg_logFC < 0 )
+```

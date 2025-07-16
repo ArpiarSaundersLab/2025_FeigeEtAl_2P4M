@@ -1,0 +1,1091 @@
+---
+title: "scRNA-seq analysis of Tha gene expression across cell types and experimental conditions"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+
+
+#Libraries and Source Files
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load data
+```{r load data, message=FALSE}
+
+tha.celltype.infections.summary <- read_rds(tha.celltype.infections.summary.path)
+
+```
+
+
+#1. Preprocess tha.celltype.infections
+```{r preprocess, echo=FALSE}
+
+tha.summary_log10 <-
+  tha.celltype.infections.summary %>%
+  mutate(
+    lViralLoad = log10(ViralLoad),
+    lTotalHost = log10(TotalHost),
+    lTotalViral = log10(TotalViral),
+    lTotalUMIs = log10(TotalUMIs),
+    )
+```
+
+#2. Plotting
+```{r save path, echo=FALSE}
+plot.path.4_rabv_gene_compositions <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/4_rabv_gene_compositions/"
+```
+
+```{r viral load density plots, echo=FALSE}
+NA_labels        <- c("Neurons", "Astrocytes")
+names(NA_labels) <- c("Neuron", "Astrocyte")
+
+###Viral Load Density Plots
+#Astrocytes vs Neurons; Color = Experiment
+# fig.2.a 
+ViralLoad_DensityPlots_log10_N_vs_A_ExperimentColored <- tha.summary_log10 %>% 
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(
+    !CellType %in% c('Microglia', 'hNSC', 'Mitotic')
+    ) %>%
+  mutate(CoarseCellType = factor(CoarseCellType, levels = c('Neuron', 'Astrocyte'))) %>%
+  mutate(Experiment = factor(Experiment, levels = c('Tha_5', 'Tha_05', '2P4M_05', 'NI_0'))) %>%
+  ggplot(aes(lViralLoad, y=after_stat(density)))+
+  geom_histogram(aes(fill = Experiment), bins=60, position='identity', alpha=0.6)+
+  geom_density(aes(group = Experiment), color='black', adjust = 1.2, linewidth = 1.7)+
+  geom_density(aes(color = Experiment), adjust = 1.2, linewidth = 1.5)+
+  geom_vline(xintercept = -1.5, linetype="dotted", color = "black", linewidth=0.75)+
+  facet_wrap(~CoarseCellType, scales='free')+
+  scale_color_manual(values = c(Tha_color, Tha5_color, Tha2P4M_color))+
+  scale_fill_manual(values =  c(Tha_color, Tha5_color, Tha2P4M_color))+
+  scale_x_continuous(name = "% Rabies UMIs", breaks = c(-2.0, -1.5, -1.0, -0.5), labels = c( "1","3", "10", "30"))+
+  ylab("Density")+
+  theme_bw()+
+  theme(axis.text.x = element_text (size = 12,  family = "Arial", face = "plain", color = "black"),
+         axis.text.y = element_blank(),
+         axis.title = element_text (size =12, family = "Arial", face = "bold", color = "black"),
+         strip.background = element_blank(),
+         strip.text = element_text (size =16, family = "Arial", face = "bold", color = "black"),
+         plot.margin = ggplot2::margin(t = 0, r = 1, b = 0, l = 1, unit = "cm"))
+
+ggsave(filename =  paste0(plot.path.4_rabv_gene_compositions, "ViralLoad_DensityPlots_log10_N_vs_A_ExperimentColored.png"), plot = ViralLoad_DensityPlots_log10_N_vs_A_ExperimentColored,
+       device='png', width = 18.5, height=5.75, units='cm', dpi=600)
+
+
+
+#CoarseCellType_NoMicroglia; Color = Experiment
+# fig.2.a.supp
+ViralLoad_DensityPlots_log10_CoarseCellType_NoMicroglia_ExperimentColored <- tha.summary_log10 %>%
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(
+    CoarseCellType %in% c("Astrocyte", "hNSC", "Mitotic", "Neuron") #exclude: "Microglia"
+    ) %>%
+  mutate(Experiment = factor(Experiment, levels = c('Tha_5', 'Tha_05', '2P4M_05', 'NI_0'))) %>%
+  ggplot(aes(lViralLoad, y=after_stat(density)))+
+  geom_histogram(aes(fill = Experiment), bins=60, position='identity', alpha=0.6)+
+  geom_density(aes(group = Experiment), color='black', adjust = 1.2, linewidth = 3.3)+
+  geom_density(aes(color = Experiment), adjust = 1.2, linewidth = 3)+
+  geom_vline(xintercept = -1.5, linetype="dotted", color = "black", linewidth=2.0)+
+  facet_wrap(~CoarseCellType, scales='free')+
+  scale_color_manual(values = c(Tha_color, Tha5_color, Tha2P4M_color))+
+  scale_fill_manual(values = c(Tha_color, Tha5_color, Tha2P4M_color))+
+  scale_x_continuous(name = "% Rabies UMIs", breaks = c(-2.0, -1.5, -1.0, -0.5), labels = c( "1","3", "10", "30"))+
+  facet_wrap(~CellType, scales='free', nrow = 1)+
+  ylab("Density")+
+  theme_bw()+
+  theme(axis.text.x = element_text (size = 24,  family = "Arial", face = "plain", color = "black"),
+         axis.text.y = element_blank(),
+         axis.title = element_text (size =24, family = "Arial", face = "bold", color = "black"),
+         strip.background = element_blank(),
+         strip.text = element_text (size =28, family = "Arial", face = "bold", color = "black"),
+         plot.margin = ggplot2::margin(t = 0, r = 1, b = 0, l = 1, unit = "cm"))
+
+ggsave(filename =  paste0(plot.path.4_rabv_gene_compositions, "ViralLoad_DensityPlots_log10_CoarseCellType_NoMicroglia_ExperimentColored.png"), plot = ViralLoad_DensityPlots_log10_CoarseCellType_NoMicroglia_ExperimentColored,
+       device='png', width = 50, height=10, units='cm', dpi=600)
+
+
+
+# Stratified by replicate (reviewer requested)
+ViralLoad_DensityPlots_log10_CoarseCellType_NoMicroglia_ExperimentColored_ReplicateStratified <- tha.summary_log10 %>%
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(
+    CoarseCellType %in% c("Astrocyte", "hNSC", "Mitotic", "Neuron") #exclude: "Microglia"
+    ) %>%
+  mutate(Experiment = factor(Experiment, levels = c('Tha_5', 'Tha_05', '2P4M_05', 'NI_0'))) %>%
+  ggplot(aes(lViralLoad, y=after_stat(density)))+
+  geom_histogram(aes(fill = Experiment), bins=60, position='identity', alpha=0.6)+
+  geom_density(aes(group = Tube), color='black', adjust = 1.2, linewidth = 3.8)+
+  geom_density(aes(color = Tube), adjust = 1.2, linewidth = 2.2)+
+  #geom_density(aes(group = Tube), color='black', adjust = 1.2, linewidth = 3.6)+
+  geom_vline(xintercept = -1.5, linetype="dotted", color = "black", linewidth=2.0)+
+  facet_wrap(~CoarseCellType, scales='free')+
+  scale_color_manual(values = c("A_2P4M_05" = Tha2P4M_color, "A_Tha_05" = Tha_color, "A_Tha_5" = Tha5_color, "B_2P4M_05" = Tha2P4M_color, "B_Tha_05" = Tha_color, "B_Tha_5" = Tha5_color, "C_Tha_05" = Tha_color))+
+  scale_fill_manual(values = c(Tha_color, Tha5_color, Tha2P4M_color))+
+  scale_x_continuous(name = "% Rabies UMIs", breaks = c(-2.0, -1.5, -1.0, -0.5), labels = c( "1","3", "10", "30"))+
+  facet_wrap(~CellType, scales='free', nrow = 1)+
+  ylab("Density")+
+  theme_bw()+
+  theme(axis.text.x = element_text (size = 24,  family = "Arial", face = "plain", color = "black"),
+         axis.text.y = element_blank(),
+         axis.title = element_text (size =24, family = "Arial", face = "bold", color = "black"),
+         strip.background = element_blank(),
+         strip.text = element_text (size =28, family = "Arial", face = "bold", color = "black"),
+         plot.margin = ggplot2::margin(t = 0, r = 1, b = 0, l = 1, unit = "cm"))
+
+ggsave(filename =  paste0(plot.path.4_rabv_gene_compositions, "ViralLoad_DensityPlots_log10_CoarseCellType_NoMicroglia_ExperimentColored_ReplicateStratified.png"), plot = ViralLoad_DensityPlots_log10_CoarseCellType_NoMicroglia_ExperimentColored_ReplicateStratified,
+       device='png', width = 50, height=10, units='cm', dpi=600)
+
+
+
+
+
+
+
+#Experiment; Color = Coarse Cell Type
+#fig.2.b
+ViralLoad_DensityPlots_log10_Experiment_CoarseCellTypeColored <- tha.summary_log10 %>%
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(
+    !CellType %in% c('Microglia', 'hNSC', 'Mitotic')
+    ) %>%
+  mutate(Experiment = factor(Experiment, levels = c('Tha_05','Tha_5', '2P4M_05', 'NI_0'))) %>%
+  mutate(CoarseCellType = factor(CoarseCellType, levels = c("Neuron", "Astrocyte"))) %>%
+  ggplot(aes(lViralLoad, y=after_stat(density)))+
+  geom_histogram(aes(fill = CoarseCellType), bins=60, position='identity', alpha=0.6)+
+  geom_density(aes(group = CoarseCellType), color='black', adjust = 1.2, linewidth = 2.3)+
+  geom_density(aes(color = CoarseCellType), adjust = 1.2, linewidth = 2)+
+  geom_vline(xintercept = -1.5, linetype="dotted", color = "black", linewidth=1.25)+
+  facet_wrap(~Experiment, scales='free')+
+  scale_color_manual(values = c(Neuron_color, Astrocyte_color))+
+  scale_fill_manual(values =  c(Neuron_color, Astrocyte_color))+
+  scale_x_continuous(name = "% Rabies UMIs", breaks = c(-2.0, -1.5, -1.0, -0.5), labels = c( "1","3", "10", "30"))+
+  ylab("Density")+
+  theme_bw()+
+  theme(axis.text.x = element_text (size = 16,  family = "Arial", face = "plain", color = "black"),
+         axis.text.y = element_blank(),
+         axis.title = element_text (size =16, family = "Arial", face = "bold", color = "black"),
+         strip.background = element_blank(),
+         strip.text = element_text (size =20, family = "Arial", face = "bold", color = "black"),
+         plot.margin = ggplot2::margin(t = 0, r = 1, b = 0, l = 1, unit = "cm"))
+
+
+ggsave(filename = paste0(plot.path.4_rabv_gene_compositions, "ViralLoad_DensityPlots_log10_Experiment_CoarseCellTypeColored.png"), 
+       ViralLoad_DensityPlots_log10_Experiment_CoarseCellTypeColored, device='png', width = 30, height=8, units='cm', dpi=600)
+```
+
+
+```{r RV Gene Composition Analysis, echo=FALSE}
+
+# tha.summary_log10 %>%
+#   filter(
+#     #astro.include,
+#     G > 0, L > 0
+#     )  %>%
+#   filter(Experiment %in% c( '2P4M_05')) %>%
+#   #filter(CellType %in% c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte')) %>%
+#   pivot_longer(cols=c(N,P,M,G,L), names_to='var', values_to='vals') %>%
+#   mutate(var = factor(var, levels = c('N','P','M','G','L')),
+#     CoarseCellType = factor(CoarseCellType, levels = c('Neuron', 'Astrocyte'))) %>%
+#   {
+#     plot_basic <- function(ds){
+#       ggplot(ds, aes(vals/TotalViral, y=after_stat(density)))+
+#         geom_histogram(aes(fill = ident), bins=40, position='identity', alpha=0.8, na.rm=TRUE)+
+#         geom_density(aes(group = ident), color='black', adjust = 1.2, linewidth = 1, na.rm=TRUE)+
+#         geom_density(aes(color = ident), adjust = 1.2, linewidth = 0.6, na.rm=TRUE)+
+#         facet_wrap(~CoarseCellType, nrow=2, scales='free_y')+
+#         theme_bw()+
+#         theme(
+#           legend.position='none',
+#           axis.text=element_blank(),
+#           axis.ticks=element_blank(),
+#           axis.title=element_blank(),
+#           strip.background=element_blank(),
+#           strip.text=element_blank()
+#           )
+#     }
+#     
+#     n <- filter(., var == 'N') %>%
+#       plot_basic()+
+#       scale_x_continuous(limits = c(0.15, 0.45))
+#     
+#     p <- filter(., var == 'P') %>%
+#       plot_basic()+
+#       scale_x_continuous(limits = c(0.32, 0.55))
+#     
+#     m <- filter(., var == 'M') %>%
+#       plot_basic()+
+#       scale_x_continuous(limits = c(0.1, 0.4))
+#     
+#     g <- filter(., var == 'G') %>%
+#       plot_basic()+
+#       scale_x_continuous(limits = c(NA, 0.04))
+#     
+#     l <- filter(., var == 'L') %>%
+#       plot_basic()+
+#       scale_x_continuous(limits = c(NA, 0.05))
+#     
+#     cowplot::plot_grid(n, p, m, g, l, ncol=5)
+#   } -> fig.2.c
+# fig.2.c
+# ggsave('Figures/Figure2/panel_c.png', fig.2.c, device='png', width = 18.5, height=7.75, units='cm', dpi=600)
+
+
+#RVGeneComposition
+#1a. RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored
+tha.summary_log10 %>%
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(Experiment %in% c('Tha_05', '2P4M_05', 'Tha_5')) %>%
+  filter(CellType %in% c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte')) %>%
+  pivot_longer(cols=c(N,P,M,G,L), names_to='var', values_to='vals') %>%
+  mutate(Experiment = factor(Experiment, levels = c('Tha_05', 'Tha_5', '2P4M_05', 'NI_0'))) %>%
+  mutate(var = factor(var, levels = c('N','P','M','G','L')),
+    CoarseCellType = factor(CoarseCellType, levels = c('Neuron', 'Astrocyte'))) %>%
+  {
+    plot_basic <- function(ds){
+      ggplot(ds, aes(vals/TotalViral, y=after_stat(density)))+
+        geom_histogram(aes(fill = Experiment), bins=40, position='identity', alpha=0.6, na.rm=TRUE)+
+        #geom_density(aes(group = Experiment), color='black', adjust = 1.2, linewidth = 1, na.rm=TRUE)+
+        geom_density(aes(color = Experiment), adjust = 1.2, linewidth = 0.6, na.rm=TRUE)+
+        scale_color_manual(values = c(Tha_color, Tha5_color, Tha2P4M_color))+
+        scale_fill_manual(values = c(Tha_color, Tha5_color, Tha2P4M_color))+
+        facet_wrap(~CoarseCellType, nrow=2, scales='free_y')+
+        ylab("Density")+
+        xlab("% UMIs")+
+        theme_bw()
+        # theme(
+        #   legend.position='none',
+        #   axis.text=element_blank(),
+        #   # axis.ticks=element_blank(),
+        #   axis.title=element_blank(),
+        #   strip.background=element_blank(),
+        #   strip.text=element_blank()
+        #   )
+    }
+    
+    n <- filter(., var == 'N') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.15, 0.45))+
+      geom_vline(xintercept = 0.3, linetype="dotted", color = "black", linewidth=0.75)
+    
+    p <- filter(., var == 'P') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.32, 0.55))+
+      geom_vline(xintercept = 0.45, linetype="dotted", color = "black", linewidth=0.75)
+    
+    m <- filter(., var == 'M') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.1, 0.4))+
+      geom_vline(xintercept = 0.25, linetype="dotted", color = "black", linewidth=0.75)
+    
+    g <- filter(., var == 'G') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.04))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    l <- filter(., var == 'L') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.05))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    cowplot::plot_grid(n, p, m, g, l, ncol=5)
+  } -> RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored #fig.2.c.supp
+
+
+ggsave(filename = paste0(plot.path.4_rabv_gene_compositions, "RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored.png"), 
+       RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored, device='png', width = 90, height=39, units='cm', dpi=600)
+
+
+
+
+tha.summary_log10 %>%
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(Experiment %in% c('Tha_05', '2P4M_05', 'Tha_5')) %>%
+  filter(CellType %in% c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte')) %>%
+  pivot_longer(cols=c(N,P,M,G,L), names_to='var', values_to='vals') %>%
+  mutate(Experiment = factor(Experiment, levels = c('Tha_05', 'Tha_5', '2P4M_05', 'NI_0'))) %>%
+  mutate(var = factor(var, levels = c('N','P','M','G','L')),
+    CoarseCellType = factor(CoarseCellType, levels = c('Neuron', 'Astrocyte'))) %>%
+  {
+    plot_basic <- function(ds){
+      ggplot(ds, aes(vals/TotalViral, y=after_stat(density)))+
+        geom_histogram(aes(fill = Experiment), bins=40, position='identity', alpha=0.6, na.rm=TRUE)+
+        geom_density(aes(group = Experiment), color='black', adjust = 1.2, linewidth = 1.4, na.rm=TRUE)+
+        geom_density(aes(color = Experiment), adjust = 1.2, linewidth = 1.3, na.rm=TRUE)+
+        scale_color_manual(values = c(Tha_color, Tha5_color, Tha2P4M_color))+
+        scale_fill_manual(values = c(Tha_color, Tha5_color, Tha2P4M_color))+
+        facet_wrap(~CoarseCellType, nrow=2, scales='free_y')+
+        ylab("Density")+
+        xlab("% UMIs")+
+        theme_bw()+
+        theme(
+          legend.position='none',
+          axis.text=element_blank(),
+          # axis.ticks=element_blank(),
+          axis.title=element_blank(),
+          strip.background=element_blank(),
+          strip.text=element_blank()
+          )
+    }
+    
+    n <- filter(., var == 'N') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.15, 0.45))+
+      geom_vline(xintercept = 0.3, linetype="dotted", color = "black", linewidth=0.75)
+    
+    p <- filter(., var == 'P') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.32, 0.55))+
+      geom_vline(xintercept = 0.45, linetype="dotted", color = "black", linewidth=0.75)
+    
+    m <- filter(., var == 'M') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.1, 0.4))+
+      geom_vline(xintercept = 0.25, linetype="dotted", color = "black", linewidth=0.75)
+    
+    g <- filter(., var == 'G') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.04))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    l <- filter(., var == 'L') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.05))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    cowplot::plot_grid(n, p, m, g, l, ncol=5)
+  } -> RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored_NoLegend #fig.2.c.supp
+
+
+ggsave(filename = paste0(plot.path.4_rabv_gene_compositions, "RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored_NoLegend.png"), 
+       RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored_NoLegend, device='png', width = 18.5, height=7.75, units='cm', dpi=600)
+
+
+
+
+#1b. RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored (density plots stratified by replicate; reviewer requested)
+tha.summary_log10 %>%
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(Experiment %in% c('Tha_05', '2P4M_05', 'Tha_5')) %>%
+  filter(CellType %in% c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte')) %>%
+  pivot_longer(cols=c(N,P,M,G,L), names_to='var', values_to='vals') %>%
+  mutate(Experiment = factor(Experiment, levels = c('Tha_05', 'Tha_5', '2P4M_05', 'NI_0'))) %>%
+  mutate(var = factor(var, levels = c('N','P','M','G','L')),
+    CoarseCellType = factor(CoarseCellType, levels = c('Neuron', 'Astrocyte'))) %>%
+  {
+    plot_basic <- function(ds){
+      ggplot(ds, aes(vals/TotalViral, y=after_stat(density)))+
+        geom_histogram(aes(fill = Experiment), bins=40, position='identity', alpha=0.6, na.rm=TRUE)+
+        geom_density(aes(group = Tube), color='black', adjust = 1.2, linewidth = 4.8, na.rm=TRUE)+
+        geom_density(aes(color = Tube), adjust = 1.2, linewidth = 3.0, na.rm=TRUE)+
+        scale_color_manual(values = c("A_2P4M_05" = Tha2P4M_color, "A_Tha_05" = Tha_color, "A_Tha_5" = Tha5_color, "B_2P4M_05" = Tha2P4M_color, "B_Tha_05" = Tha_color, "B_Tha_5" = Tha5_color, "C_Tha_05" = Tha_color))+
+        scale_fill_manual(values = c(Tha_color, Tha5_color, Tha2P4M_color))+
+        facet_wrap(~CoarseCellType, nrow=2, scales='free_y')+
+        ylab("Density")+
+        xlab("% UMIs")+
+        theme_bw()
+        # theme(
+        #   legend.position='none',
+        #   axis.text=element_blank(),
+        #   # axis.ticks=element_blank(),
+        #   axis.title=element_blank(),
+        #   strip.background=element_blank(),
+        #   strip.text=element_blank()
+        #   )
+    }
+    
+    n <- filter(., var == 'N') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.15, 0.45))+
+      geom_vline(xintercept = 0.3, linetype="dotted", color = "black", linewidth=0.75)
+    
+    p <- filter(., var == 'P') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.32, 0.55))+
+      geom_vline(xintercept = 0.45, linetype="dotted", color = "black", linewidth=0.75)
+    
+    m <- filter(., var == 'M') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.1, 0.4))+
+      geom_vline(xintercept = 0.25, linetype="dotted", color = "black", linewidth=0.75)
+    
+    g <- filter(., var == 'G') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.04))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    l <- filter(., var == 'L') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.05))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    cowplot::plot_grid(n, p, m, g, l, ncol=5)
+  } -> RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored_ReplicateStratified #fig.2.c.supp
+
+
+ggsave(filename = paste0(plot.path.4_rabv_gene_compositions, "RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored_ReplicateStratified.png"), 
+       RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored_ReplicateStratified, device='png', width = 90, height=39, units='cm', dpi=600)
+
+
+
+tha.summary_log10 %>%
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(Experiment %in% c('Tha_05', '2P4M_05', 'Tha_5')) %>%
+  filter(CellType %in% c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte')) %>%
+  pivot_longer(cols=c(N,P,M,G,L), names_to='var', values_to='vals') %>%
+  mutate(Experiment = factor(Experiment, levels = c('Tha_05', 'Tha_5', '2P4M_05', 'NI_0'))) %>%
+  mutate(var = factor(var, levels = c('N','P','M','G','L')),
+    CoarseCellType = factor(CoarseCellType, levels = c('Neuron', 'Astrocyte'))) %>%
+  {
+    plot_basic <- function(ds){
+      ggplot(ds, aes(vals/TotalViral, y=after_stat(density)))+
+        geom_histogram(aes(fill = Experiment), bins=40, position='identity', alpha=0.6, na.rm=TRUE)+
+        geom_density(aes(group = Tube), color='black', adjust = 1.2, linewidth = 4.8, na.rm=TRUE)+
+        geom_density(aes(color = Tube), adjust = 1.2, linewidth = 3.0, na.rm=TRUE)+
+        scale_color_manual(values = c("A_2P4M_05" = Tha2P4M_color, "A_Tha_05" = Tha_color, "A_Tha_5" = Tha5_color, "B_2P4M_05" = Tha2P4M_color, "B_Tha_05" = Tha_color, "B_Tha_5" = Tha5_color, "C_Tha_05" = Tha_color))+
+        scale_fill_manual(values = c(Tha_color, Tha5_color, Tha2P4M_color))+
+        facet_wrap(~CoarseCellType, nrow=2, scales='free_y')+
+        ylab("Density")+
+        xlab("% UMIs")+
+        theme_bw()+
+        theme(
+          legend.position='none',
+          axis.text=element_blank(),
+          # axis.ticks=element_blank(),
+          axis.title=element_blank(),
+          strip.background=element_blank(),
+          strip.text=element_blank()
+          )
+    }
+    
+    n <- filter(., var == 'N') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.15, 0.45))+
+      geom_vline(xintercept = 0.3, linetype="dotted", color = "black", linewidth=3)
+    
+    p <- filter(., var == 'P') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.32, 0.55))+
+      geom_vline(xintercept = 0.45, linetype="dotted", color = "black", linewidth=3)
+    
+    m <- filter(., var == 'M') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.1, 0.4))+
+      geom_vline(xintercept = 0.25, linetype="dotted", color = "black", linewidth=3)
+    
+    g <- filter(., var == 'G') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.04))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=3)
+    
+    l <- filter(., var == 'L') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.05))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=3)
+    
+    cowplot::plot_grid(n, p, m, g, l, ncol=5)
+  } -> RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored_ReplicateStratified_NoLegend #fig.2.c.supp
+
+
+ggsave(filename = paste0(plot.path.4_rabv_gene_compositions, "RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored_ReplicateStratified_NoLegend.png"), 
+       RVGeneComposition_DensityPlot_NPMGL_by_NvsA_AllExperimentColored_ReplicateStratified_NoLegend, device='png', width = 90, height=39, units='cm', dpi=600)
+
+
+
+#Karl fig.2.c
+#RVGeneComposition_DensityPlot_NPMGL_by_NvsA_Tha_05_2P4M_05ExperimentColored
+tha.summary_log10 %>%
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(Experiment %in% c('Tha_05', '2P4M_05')) %>%
+  filter(CellType %in% c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte')) %>%
+  pivot_longer(cols=c(N,P,M,G,L), names_to='var', values_to='vals') %>%
+  mutate(Experiment = factor(Experiment, levels = c('Tha_05', 'Tha_5', '2P4M_05', 'NI_0'))) %>%
+  mutate(var = factor(var, levels = c('N','P','M','G','L')),
+    CoarseCellType = factor(CoarseCellType, levels = c('Neuron', 'Astrocyte'))) %>%
+  {
+    plot_basic <- function(ds){
+      ggplot(ds, aes(vals/TotalViral, y=after_stat(density)))+
+        geom_histogram(aes(fill = Experiment), bins=40, position='identity', alpha=0.6, na.rm=TRUE)+
+        geom_density(aes(group = Experiment), color='black', adjust = 1.2, linewidth = 2.1, na.rm=TRUE)+
+        geom_density(aes(color = Experiment), adjust = 1.2, linewidth = 1.9, na.rm=TRUE)+
+        scale_color_manual(values = c(Neuron_color, Astrocyte_color))+
+        scale_fill_manual(values = c(Neuron_color, Astrocyte_color))+
+        facet_wrap(~CoarseCellType, nrow=2, scales='free_y')+
+        theme_bw()+
+        theme(
+          legend.position='none',
+          axis.text=element_blank(),
+          #axis.ticks=element_blank(),
+          axis.title=element_blank(),
+          strip.background=element_blank(),
+          strip.text=element_blank()
+          )
+    }
+    
+    n <- filter(., var == 'N') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.15, 0.45))+
+      geom_vline(xintercept = 0.3, linetype="dotted", color = "black", linewidth=0.75)
+    
+    p <- filter(., var == 'P') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.32, 0.55))+
+      geom_vline(xintercept = 0.45, linetype="dotted", color = "black", linewidth=0.75)
+    
+    m <- filter(., var == 'M') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.1, 0.4))+
+      geom_vline(xintercept = 0.25, linetype="dotted", color = "black", linewidth=0.75)
+    
+    g <- filter(., var == 'G') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.04))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    l <- filter(., var == 'L') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.05))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    cowplot::plot_grid(n, p, m, g, l, ncol=5)
+  } -> RVGeneComposition_DensityPlot_NPMGL_by_NvsA_Tha_05_2P4M_05ExperimentColored #fig.2.c.supp
+
+
+ggsave(filename = paste0(plot.path.4_rabv_gene_compositions, "RVGeneComposition_DensityPlot_NPMGL_by_NvsA_Tha_05_2P4M_05ExperimentColored.png"), 
+       RVGeneComposition_DensityPlot_NPMGL_by_NvsA_Tha_05_2P4M_05ExperimentColored, device='png', width = 18.5, height=7.75, units='cm', dpi=600)
+
+
+
+###
+
+
+
+
+
+
+
+####RVGeneComposition_DensityPlot_NPMGL_by_Experiment_NvsA_Colored
+
+tha.summary_log10 %>%
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(Experiment %in% c('Tha_05', '2P4M_05', 'Tha_5')) %>%
+  filter(CellType %in% c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte')) %>%
+  pivot_longer(cols=c(N,P,M,G,L), names_to='var', values_to='vals') %>%
+  mutate(Experiment = factor(Experiment, levels = c('Tha_05', 'Tha_5', '2P4M_05', 'NI_0'))) %>%
+  mutate(var = factor(var, levels = c('N','P','M','G','L')),
+    CoarseCellType = factor(CoarseCellType, levels = c('Neuron', 'Astrocyte'))) %>%
+  {
+    plot_basic <- function(ds){
+      ggplot(ds, aes(vals/TotalViral, y=after_stat(density)))+
+        geom_histogram(aes(fill = CoarseCellType), bins=40, position='identity', alpha=0.6, na.rm=TRUE)+
+        #geom_density(aes(group = CoarseCellType), color='black', adjust = 1.2, linewidth = 1, na.rm=TRUE)+
+        geom_density(aes(color = CoarseCellType), adjust = 1.2, linewidth = 1.5, na.rm=TRUE)+
+        scale_color_manual(values = c(Neuron_color, Astrocyte_color))+
+        scale_fill_manual(values = c(Neuron_color, Astrocyte_color))+
+        facet_wrap(~Experiment, nrow=3, scales='free_y')+
+        theme_bw()
+    }
+    
+    n <- filter(., var == 'N') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.15, 0.45))+
+      geom_vline(xintercept = 0.3, linetype="dotted", color = "black", linewidth=0.75)
+    
+    p <- filter(., var == 'P') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.32, 0.55))+
+      geom_vline(xintercept = 0.45, linetype="dotted", color = "black", linewidth=0.75)
+    
+    m <- filter(., var == 'M') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.1, 0.4))+
+      geom_vline(xintercept = 0.25, linetype="dotted", color = "black", linewidth=0.75)
+    
+    g <- filter(., var == 'G') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.04))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    l <- filter(., var == 'L') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.05))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    cowplot::plot_grid(n, p, m, g, l, ncol=5)
+  } -> RVGeneComposition_DensityPlot_NPMGL_by_Experiment_NvsA_Colored  #fig.2.c.supp.2
+
+ggsave(filename = paste0(plot.path.4_rabv_gene_compositions, "RVGeneComposition_DensityPlot_NPMGL_by_Experiment_NvsA_Colored.png"), 
+       RVGeneComposition_DensityPlot_NPMGL_by_Experiment_NvsA_Colored, device='png', width = 90, height=39, units='cm', dpi=600)
+
+#No Legend Version
+tha.summary_log10 %>%
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(Experiment %in% c('Tha_05', '2P4M_05', 'Tha_5')) %>%
+  filter(CellType %in% c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte')) %>%
+  pivot_longer(cols=c(N,P,M,G,L), names_to='var', values_to='vals') %>%
+  mutate(Experiment = factor(Experiment, levels = c('Tha_05', 'Tha_5', '2P4M_05', 'NI_0'))) %>%
+  mutate(var = factor(var, levels = c('N','P','M','G','L')),
+    CoarseCellType = factor(CoarseCellType, levels = c('Neuron', 'Astrocyte'))) %>%
+  {
+    plot_basic <- function(ds){
+      ggplot(ds, aes(vals/TotalViral, y=after_stat(density)))+
+        geom_histogram(aes(fill = CoarseCellType), bins=40, position='identity', alpha=0.6, na.rm=TRUE)+
+        geom_density(aes(group = CoarseCellType), color='black', adjust = 1.2, linewidth = 1.75, na.rm=TRUE)+
+        geom_density(aes(color = CoarseCellType), adjust = 1.2, linewidth = 1.5, na.rm=TRUE)+
+        scale_color_manual(values = c(Neuron_color, Astrocyte_color))+
+        scale_fill_manual(values = c(Neuron_color, Astrocyte_color))+
+        facet_wrap(~Experiment, nrow=3, scales='free_y')+
+        theme_bw()+
+        theme(
+          legend.position='none',
+          axis.text=element_blank(),
+          #axis.ticks=element_blank(),
+          axis.title=element_blank(),
+          strip.background=element_blank(),
+          strip.text=element_blank()
+          )
+    }
+    
+    n <- filter(., var == 'N') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.15, 0.45))+
+      geom_vline(xintercept = 0.3, linetype="dotted", color = "black", linewidth=0.75)
+    
+    p <- filter(., var == 'P') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.32, 0.55))+
+      geom_vline(xintercept = 0.45, linetype="dotted", color = "black", linewidth=0.75)
+    
+    m <- filter(., var == 'M') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(0.1, 0.4))+
+      geom_vline(xintercept = 0.25, linetype="dotted", color = "black", linewidth=0.75)
+    
+    g <- filter(., var == 'G') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.04))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    l <- filter(., var == 'L') %>%
+      plot_basic()+
+      scale_x_continuous(limits = c(NA, 0.05))+
+      geom_vline(xintercept = 0.01, linetype="dotted", color = "black", linewidth=0.75)
+    
+    cowplot::plot_grid(n, p, m, g, l, ncol=5)
+  } -> RVGeneComposition_DensityPlot_NPMGL_by_Experiment_NvsA_Colored_NoLegend  #fig.2.c.supp.2
+
+
+ggsave(filename = paste0(plot.path.4_rabv_gene_compositions, "RVGeneComposition_DensityPlot_NPMGL_by_Experiment_NvsA_Colored_NoLegend.png"), 
+       RVGeneComposition_DensityPlot_NPMGL_by_Experiment_NvsA_Colored_NoLegend, device='png', width = 18.5, height=7.75, units='cm', dpi=600)
+
+```
+
+#3. STATISTICS AND DATA DESCRIPTION
+```{r stats and descriptions, echo = FALSE}
+#0. Generate filtered infection summaries for various comparisons
+#A. Basic
+tha.summary_log10_filtered <-
+  tha.summary_log10 %>%
+  filter(Strain != 'NI', CoarseCellType != "Microglia", seurat.include == 'yes', infected == 'yes', infected.posterior > 0.8, G > 0, L > 0)  %>%
+  mutate(N_Percentage = (N / TotalViral) * 100) %>%
+  mutate(P_Percentage = (P / TotalViral) * 100) %>%
+  mutate(M_Percentage = (M / TotalViral) * 100) %>%
+  mutate(G_Percentage = (G / TotalViral) * 100) %>%
+  mutate(L_Percentage = (L / TotalViral) * 100)
+  
+#B. Split by Neurons, Astrocytes or Neurons & Astrocytes
+tha.summary_log10_filtered_Neuron <-
+ tha.summary_log10_filtered %>%
+ filter(CoarseCellType == "Neuron")
+ 
+tha.summary_log10_filtered_Astrocyte <-
+ tha.summary_log10_filtered %>%
+ filter(CoarseCellType == "Astrocyte")
+ 
+tha.summary_log10_filtered_Neuron_Astrocyte <-
+ tha.summary_log10_filtered %>%
+ filter(CoarseCellType %in% c("Neuron", "Astrocyte"))
+
+tha.summary_log10_filtered_Neuron.SHOX2 <-
+ tha.summary_log10_filtered %>%
+ filter(CellType == "Neuron.SHOX2")
+
+tha.summary_log10_filtered_Neuron.OTP <-
+ tha.summary_log10_filtered %>%
+ filter(CellType == "Neuron.OTP")
+
+tha.summary_log10_filtered_hNSC <-
+ tha.summary_log10_filtered %>%
+ filter(CellType == "hNSC")
+
+tha.summary_log10_filtered_Mitotic <-
+ tha.summary_log10_filtered %>%
+ filter(CellType == "Mitotic")
+
+#C.N&A only by Experiment
+tha.summary_log10_filtered_Neuron_Astrocyte_Tha05 <-
+  tha.summary_log10_filtered_Neuron_Astrocyte %>%
+  filter(Experiment == "Tha_05")
+
+tha.summary_log10_filtered_Neuron_Astrocyte_Tha5 <-
+  tha.summary_log10_filtered_Neuron_Astrocyte %>%
+  filter(Experiment == "Tha_5")
+
+tha.summary_log10_filtered_Neuron_Astrocyte_Tha2P4M <-
+  tha.summary_log10_filtered_Neuron_Astrocyte %>%
+  filter(Experiment == "2P4M_05")
+
+
+#C.No Tha2P4M
+tha.summary_log10_filtered_Tha5_Tha05 <-
+  tha.summary_log10_filtered %>%
+  filter(Experiment %in% c("Tha_05", "Tha_5"))
+
+#D. Generate Neuron and Astrocyte data for each experimental condition
+#Tha_5
+tha.summary_log10_filtered_Neuron_Tha05 <-
+ tha.summary_log10_filtered_Neuron %>%
+ filter(Experiment == "Tha_05")
+
+tha.summary_log10_filtered_Astrocyte_Tha05 <-
+ tha.summary_log10_filtered_Astrocyte %>%
+ filter(Experiment == "Tha_05")
+
+#Tha_05
+tha.summary_log10_filtered_Neuron_Tha5 <-
+ tha.summary_log10_filtered_Neuron %>%
+ filter(Experiment == "Tha_5")
+
+tha.summary_log10_filtered_Astrocyte_Tha5 <-
+ tha.summary_log10_filtered_Astrocyte %>%
+ filter(Experiment == "Tha_5")
+
+#Tha2P4M
+tha.summary_log10_filtered_Neuron_Tha2P4M <-
+ tha.summary_log10_filtered_Neuron %>%
+ filter(Experiment == "2P4M_05")
+
+tha.summary_log10_filtered_Astrocyte_Tha2P4M <-
+ tha.summary_log10_filtered_Astrocyte %>%
+ filter(Experiment == "2P4M_05")
+
+
+
+
+  
+#1. One-way KS to test for effects of CoarseCellType or Experiment on ViralLoad values
+#Coarse Cell Type -- Figure 3A
+ks.viral_load_Neuron    <- kruskal.test(ViralLoad ~ Experiment, data = tha.summary_log10_filtered_Neuron)
+ks.viral_load_Astrocyte <- kruskal.test(ViralLoad ~ Experiment, data = tha.summary_log10_filtered_Astrocyte)
+
+#Cell Type -- Figure 3SC
+ks.viral_load_Neuron.SHOX2 <- kruskal.test(ViralLoad ~ Experiment, data = tha.summary_log10_filtered_Neuron.SHOX2)
+ks.viral_load_Neuron.OTP   <- kruskal.test(ViralLoad ~ Experiment, data = tha.summary_log10_filtered_Neuron.OTP)
+ks.viral_load_hNSC         <- kruskal.test(ViralLoad ~ Experiment, data = tha.summary_log10_filtered_hNSC)
+ks.viral_load_Mitotic      <- kruskal.test(ViralLoad ~ Experiment, data = tha.summary_log10_filtered_Mitotic)
+
+
+ViralLoad_CoarseCellType_and_ExperimentalCondition_Summary <-
+  tha.summary_log10_filtered %>%
+  group_by(Experiment, CoarseCellType) %>%
+  dplyr::summarize(Mean = mean(ViralLoad, na.rm=TRUE) * 100)
+
+# #ANOVA version
+# aov.viral_load_NvsA <- aov(ViralLoad ~ Experiment + CoarseCellType, data = tha.summary_log10_filtered_Neuron_Astrocyte)
+# summary(aov.viral_load_NvsA)
+
+ViralLoad_Neuron_Astrocyte_ExperimentalConditionCellCount <-
+  tha.summary_log10_filtered_Neuron_Astrocyte %>%
+  group_by(CoarseCellType) %>%
+  dplyr::count(Experiment)
+
+
+#2. One-way KS to test for effects of Experiment within each cell type
+ks.viral_load_Tha05    <- kruskal.test(ViralLoad ~ CoarseCellType, data = tha.summary_log10_filtered_Neuron_Astrocyte_Tha05)
+ks.viral_load_Tha5     <- kruskal.test(ViralLoad ~ CoarseCellType, data = tha.summary_log10_filtered_Neuron_Astrocyte_Tha5)
+ks.viral_load_Tha2P4M  <- kruskal.test(ViralLoad ~ CoarseCellType, data = tha.summary_log10_filtered_Neuron_Astrocyte_Tha2P4M)
+
+# KoSm.viral_load_Tha05_NvsA   <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha05$ViralLoad,   x = tha.summary_log10_filtered_Astrocyte_Tha05$ViralLoad)
+# KoSm.viral_load_Tha5_NvsA    <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha5$ViralLoad,    x = tha.summary_log10_filtered_Astrocyte_Tha5$ViralLoad)
+# KoSm.viral_load_Tha2P4M_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha2P4M$ViralLoad, x = tha.summary_log10_filtered_Astrocyte_Tha2P4M$ViralLoad)
+
+KoSm.viral_load_Tha05_NvsA   <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha05$ViralLoad,   x = tha.summary_log10_filtered_Astrocyte_Tha05$ViralLoad)
+KoSm.viral_load_Tha5_NvsA    <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha5$ViralLoad,    x = tha.summary_log10_filtered_Astrocyte_Tha5$ViralLoad)
+KoSm.viral_load_Tha2P4M_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha2P4M$ViralLoad, x = tha.summary_log10_filtered_Astrocyte_Tha2P4M$ViralLoad)
+
+
+#3. CoarseCellType L comparisons
+KoSm.L_percentage_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron$L_Percentage, x = tha.summary_log10_filtered_Astrocyte$L_Percentage)
+summary(KoSm.L_percentage_NvsA$p.value)
+
+#Neuron
+L_percentage.Neuron_median <- median(tha.summary_log10_filtered_Neuron$L_Percentage)
+L_percentage.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron$L_Percentage)
+L_percentage.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron$L_Percentage)
+
+#Astrocyte
+L_percentage.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte$L_Percentage)
+L_percentage.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte$L_Percentage)
+L_percentage.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte$L_Percentage)
+
+
+
+
+
+
+
+
+#4. Tha2P4M Comparison of Tha Genes across neurons and astrocytes by Experimental Condition
+###############
+
+
+
+###############
+###Tha_05
+KoSm.N_percentage_Tha05_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha05$N_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha05$N_Percentage)
+KoSm.P_percentage_Tha05_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha05$P_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha05$P_Percentage)
+KoSm.M_percentage_Tha05_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha05$M_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha05$M_Percentage)
+KoSm.G_percentage_Tha05_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha05$G_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha05$G_Percentage)
+KoSm.L_percentage_Tha05_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha05$L_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha05$L_Percentage)
+
+
+###N
+#Neuron
+N_percentage.Tha05.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha05$N_Percentage)
+N_percentage.Tha05.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha05$N_Percentage)
+N_percentage.Tha05.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha05$N_Percentage)
+
+#Astrocyte
+N_percentage.Tha05.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha05$N_Percentage)
+N_percentage.Tha05.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha05$N_Percentage)
+N_percentage.Tha05.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha05$N_Percentage)
+
+
+###P
+#Neuron
+P_percentage.Tha05.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha05$P_Percentage)
+P_percentage.Tha05.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha05$P_Percentage)
+P_percentage.Tha05.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha05$P_Percentage)
+
+#Astrocyte
+P_percentage.Tha05.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha05$P_Percentage)
+P_percentage.Tha05.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha05$P_Percentage)
+P_percentage.Tha05.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha05$P_Percentage)
+
+
+###M
+#Neuron
+M_percentage.Tha05.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha05$M_Percentage)
+M_percentage.Tha05.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha05$M_Percentage)
+M_percentage.Tha05.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha05$M_Percentage)
+
+#Astrocyte
+M_percentage.Tha05.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha05$M_Percentage)
+M_percentage.Tha05.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha05$M_Percentage)
+M_percentage.Tha05.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha05$M_Percentage)
+
+
+###L
+#Neuron
+L_percentage.Tha05.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha05$L_Percentage)
+L_percentage.Tha05.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha05$L_Percentage)
+L_percentage.Tha05.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha05$L_Percentage)
+
+#Astrocyte
+L_percentage.Tha05.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha05$L_Percentage)
+L_percentage.Tha05.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha05$L_Percentage)
+L_percentage.Tha05.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha05$L_Percentage)
+
+###############
+
+
+
+###############
+###Tha5
+KoSm.N_percentage_Tha5_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha5$N_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha5$N_Percentage)
+KoSm.P_percentage_Tha5_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha5$P_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha5$P_Percentage)
+KoSm.M_percentage_Tha5_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha5$M_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha5$M_Percentage)
+KoSm.G_percentage_Tha5_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha5$G_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha5$G_Percentage)
+KoSm.L_percentage_Tha5_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha5$L_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha5$L_Percentage)
+
+
+###N
+#Neuron
+N_percentage.Tha5.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha5$N_Percentage)
+N_percentage.Tha5.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha5$N_Percentage)
+N_percentage.Tha5.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha5$N_Percentage)
+
+#Astrocyte
+N_percentage.Tha5.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha5$N_Percentage)
+N_percentage.Tha5.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha5$N_Percentage)
+N_percentage.Tha5.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha5$N_Percentage)
+
+
+###P
+#Neuron
+P_percentage.Tha5.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha5$P_Percentage)
+P_percentage.Tha5.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha5$P_Percentage)
+P_percentage.Tha5.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha5$P_Percentage)
+
+#Astrocyte
+P_percentage.Tha5.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha5$P_Percentage)
+P_percentage.Tha5.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha5$P_Percentage)
+P_percentage.Tha5.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha5$P_Percentage)
+
+
+###M
+#Neuron
+M_percentage.Tha5.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha5$M_Percentage)
+M_percentage.Tha5.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha5$M_Percentage)
+M_percentage.Tha5.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha5$M_Percentage)
+
+#Astrocyte
+M_percentage.Tha5.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha5$M_Percentage)
+M_percentage.Tha5.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha5$M_Percentage)
+M_percentage.Tha5.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha5$M_Percentage)
+
+
+###L
+#Neuron
+L_percentage.Tha5.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha5$L_Percentage)
+L_percentage.Tha5.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha5$L_Percentage)
+L_percentage.Tha5.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha5$L_Percentage)
+
+#Astrocyte
+L_percentage.Tha5.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha5$L_Percentage)
+L_percentage.Tha5.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha5$L_Percentage)
+L_percentage.Tha5.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha5$L_Percentage)
+
+###############
+###Thai2P4M
+KoSm.N_percentage_Tha2P4M_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha2P4M$N_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha2P4M$N_Percentage)
+KoSm.P_percentage_Tha2P4M_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha2P4M$P_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha2P4M$P_Percentage)
+KoSm.M_percentage_Tha2P4M_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha2P4M$M_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha2P4M$M_Percentage)
+KoSm.G_percentage_Tha2P4M_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha2P4M$G_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha2P4M$G_Percentage)
+KoSm.L_percentage_Tha2P4M_NvsA <- ks.test(y = tha.summary_log10_filtered_Neuron_Tha2P4M$L_Percentage, x = tha.summary_log10_filtered_Astrocyte_Tha2P4M$L_Percentage)
+
+
+###N
+#Neuron
+N_percentage.Tha2P4M.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha2P4M$N_Percentage)
+N_percentage.Tha2P4M.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha2P4M$N_Percentage)
+N_percentage.Tha2P4M.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha2P4M$N_Percentage)
+
+#Astrocyte
+N_percentage.Tha2P4M.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha2P4M$N_Percentage)
+N_percentage.Tha2P4M.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha2P4M$N_Percentage)
+N_percentage.Tha2P4M.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha2P4M$N_Percentage)
+
+
+###P
+#Neuron
+P_percentage.Tha2P4M.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha2P4M$P_Percentage)
+P_percentage.Tha2P4M.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha2P4M$P_Percentage)
+P_percentage.Tha2P4M.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha2P4M$P_Percentage)
+
+#Astrocyte
+P_percentage.Tha2P4M.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha2P4M$P_Percentage)
+P_percentage.Tha2P4M.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha2P4M$P_Percentage)
+P_percentage.Tha2P4M.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha2P4M$P_Percentage)
+
+
+###M
+#Neuron
+M_percentage.Tha2P4M.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha2P4M$M_Percentage)
+M_percentage.Tha2P4M.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha2P4M$M_Percentage)
+M_percentage.Tha2P4M.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha2P4M$M_Percentage)
+
+#Astrocyte
+M_percentage.Tha2P4M.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha2P4M$M_Percentage)
+M_percentage.Tha2P4M.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha2P4M$M_Percentage)
+M_percentage.Tha2P4M.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha2P4M$M_Percentage)
+
+
+###G
+#Neuron
+G_Percentage.Tha2P4M.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha2P4M$G_Percentage)
+G_Percentage.Tha2P4M.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha2P4M$G_Percentage)
+G_Percentage.Tha2P4M.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha2P4M$G_Percentage)
+
+#Astrocyte
+G_Percentage.Tha2P4M.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha2P4M$G_Percentage)
+G_Percentage.Tha2P4M.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha2P4M$G_Percentage)
+G_Percentage.Tha2P4M.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha2P4M$G_Percentage)
+
+
+
+###L
+#Neuron
+L_percentage.Tha2P4M.Neuron_median <- median(tha.summary_log10_filtered_Neuron_Tha2P4M$L_Percentage)
+L_percentage.Tha2P4M.Neuron_mean   <- mean(tha.summary_log10_filtered_Neuron_Tha2P4M$L_Percentage)
+L_percentage.Tha2P4M.Neuron_sem    <- stderror(tha.summary_log10_filtered_Neuron_Tha2P4M$L_Percentage)
+
+#Astrocyte
+L_percentage.Tha2P4M.Astrocyte_median <- median(tha.summary_log10_filtered_Astrocyte_Tha2P4M$L_Percentage)
+L_percentage.Tha2P4M.Astrocyte_mean   <- mean(tha.summary_log10_filtered_Astrocyte_Tha2P4M$L_Percentage)
+L_percentage.Tha2P4M.Astrocyte_sem    <- stderror(tha.summary_log10_filtered_Astrocyte_Tha2P4M$L_Percentage)
+
+###############
+#Kruskal-Wallis test for differences in Tha gene expression by Experiment after stratifying by Neurons and Astrocytes -- Figure 3SD
+ks_Neuron_N <- kruskal.test(N_Percentage ~ Experiment, data = tha.summary_log10_filtered_Neuron)
+ks_Neuron_P <- kruskal.test(P_Percentage ~ Experiment, data = tha.summary_log10_filtered_Neuron)
+ks_Neuron_M <- kruskal.test(M_Percentage ~ Experiment, data = tha.summary_log10_filtered_Neuron)
+ks_Neuron_G <- kruskal.test(G_Percentage ~ Experiment, data = tha.summary_log10_filtered_Neuron)
+ks_Neuron_L <- kruskal.test(L_Percentage ~ Experiment, data = tha.summary_log10_filtered_Neuron)
+
+ks_Astrocyte_N <- kruskal.test(N_Percentage ~ Experiment, data = tha.summary_log10_filtered_Astrocyte)
+ks_Astrocyte_P <- kruskal.test(P_Percentage ~ Experiment, data = tha.summary_log10_filtered_Astrocyte)
+ks_Astrocyte_M <- kruskal.test(M_Percentage ~ Experiment, data = tha.summary_log10_filtered_Astrocyte)
+ks_Astrocyte_G <- kruskal.test(G_Percentage ~ Experiment, data = tha.summary_log10_filtered_Astrocyte)
+ks_Astrocyte_L <- kruskal.test(L_Percentage ~ Experiment, data = tha.summary_log10_filtered_Astrocyte)
+
+
+```

@@ -1,0 +1,545 @@
+---
+title: "Host astrocyte transcriptional comparisons"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+
+#Libraries and Source Files
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(Libra)
+library(clusterProfiler)
+library(enrichplot)
+library(smplot2)
+library(ReactomePA)
+library(ggrepel)
+library(ggtree)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+
+#0. Load data
+```{r load data, message=FALSE}
+
+tha.celltype.infections.summary_astrocytes_CLEAN2 <-  readRDS(tha.celltype.infections.summary_astrocytes_CLEAN2.path)
+
+
+tha.seurat                      <- read_rds(tha.seurat.path)
+tha.seurat_RC1E5                <- read_rds(tha.seurat_RC1E5.path)
+
+#results of DE Analysis ("5a_host_gene_expression_PP_Arpy_v1.Rmd")
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2         <- readRDS(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.path)
+DE.tha2p4m.high.vs.low.Astrocyte 				           <- readRDS(DE.tha2p4m.high.vs.low.Astrocyte.path)
+DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2 <- readRDS(DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2.path)
+
+
+```
+
+#1. Preprocess
+```{r preprocess, echo=FALSE}
+
+
+tha.celltype.infections.summary_astrocytes_CLEAN2_log10 <-
+  tha.celltype.infections.summary_astrocytes_CLEAN2 %>%
+  mutate(
+    lViralLoad = log10(ViralLoad),
+    lTotalHost = log10(TotalHost),
+    lTotalViral = log10(TotalViral),
+    lTotalUMIs = log10(TotalUMIs),
+    )
+
+tha.genome <- c('Tha_N', 'Tha_P', 'Tha_M', 'Tha_G', 'Tha_L')
+
+```
+
+#1b. Save Paths
+```{r define paths, echo = FALSE}
+
+# de data save path
+de.data.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/de/"
+
+#plot path
+de.plot.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/5_host_gene_expression/"
+```
+
+#2. DE Analysis Cluster 0 vs Cluster 2
+
+#2a. Volcano Plots 
+```{r Volcano Plots, echo=FALSE}
+
+### Volcano Plots with Top Genes Visualized
+
+astro_de.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/volcano/"
+
+#################################################################
+###Main Figures (top)
+#################################################################
+#DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  {
+    temp <- filter(., cell_type %in% c('Astrocyte')
+    ) 
+    
+    colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+    
+    labelgenes <- temp %>%
+      mutate(n = setNames(c(400,400,400), unique(cell_type))[cell_type]) %>%
+      #group_by(cell_type) %>%
+      arrange(desc(-log(p_val_adj))) %>%
+      filter(row_number() <= n[1]) %>%
+      dplyr::select(-n) %>%
+      bind_rows(
+        filter(temp, cell_type == 'Astrocyte', avg_logFC < 0) %>%
+          slice_max(-log10(p_val_adj), n = 4)
+      )
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    #facet_wrap(~cell_type)+
+    geom_hline(yintercept=2, linetype = 2)+
+    scale_x_continuous(limits = c(-5.5, 5.5))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank()
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2
+
+
+#gene reference version
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_labels <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=20)
+DE_VolcanoPlot_DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_reference <- DE_VolcanoPlot_DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 + AstroLow_Cluster0.vs.AstroHigh_Cluster2_labels
+
+#Save
+ggsave(paste0(astro_de.path, "DE_VolcanoPlot_DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.png"),            DE_VolcanoPlot_DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2,           device='png', width = 3, height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "DE_VolcanoPlot_DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_reference.png"),  DE_VolcanoPlot_DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_reference, device='png', width = 30, height=22.5, units='in', dpi=600)
+
+
+
+
+
+#DE.tha2p4m.high.vs.low.Astrocyte
+DE.tha2p4m.high.vs.low.Astrocyte %>%
+  {
+    temp <- filter(., cell_type %in% c('Astrocyte')
+    ) 
+    
+    colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+    
+    labelgenes <- temp %>%
+      mutate(n = setNames(c(400,400,400), unique(cell_type))[cell_type]) %>%
+      #group_by(cell_type) %>%
+      arrange(desc(-log(p_val_adj))) %>%
+      filter(row_number() <= n[1]) %>%
+      dplyr::select(-n) %>%
+      bind_rows(
+        filter(temp, cell_type == 'Astrocyte', avg_logFC < 0) %>%
+          slice_max(-log10(p_val_adj), n = 4)
+      )
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    #facet_wrap(~cell_type)+
+    geom_hline(yintercept=2, linetype = 2)+
+    scale_x_continuous(limits = c(-5.5, 5.5))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank()
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_DE.tha2p4m.high.vs.low.Astrocyte
+
+
+#gene reference version
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_labels <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=20)
+DE_VolcanoPlot_DE.tha2p4m.high.vs.low.Astrocyte_reference <- DE_VolcanoPlot_DE.tha2p4m.high.vs.low.Astrocyte + AstroLow_Cluster0.vs.AstroHigh_Cluster2_labels
+
+#Save
+ggsave(paste0(astro_de.path, "DE_VolcanoPlot_DE.tha2p4m.high.vs.low.Astrocyte.png"),            DE_VolcanoPlot_DE.tha2p4m.high.vs.low.Astrocyte,           device='png', width = 3, height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "DE_VolcanoPlot_DE.tha2p4m.high.vs.low.Astrocyte_reference.png"),  DE_VolcanoPlot_DE.tha2p4m.high.vs.low.Astrocyte_reference, device='png', width = 30, height=22.5, units='in', dpi=600)
+
+
+
+
+
+
+#DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2
+DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  {
+    temp <- filter(., cell_type %in% c('Astrocyte')
+    ) 
+    
+    colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+    
+    labelgenes <- temp %>%
+      mutate(n = setNames(c(400,400,400), unique(cell_type))[cell_type]) %>%
+      #group_by(cell_type) %>%
+      arrange(desc(-log(p_val_adj))) %>%
+      filter(row_number() <= n[1]) %>%
+      dplyr::select(-n) %>%
+      bind_rows(
+        filter(temp, cell_type == 'Astrocyte', avg_logFC < 0) %>%
+          slice_max(-log10(p_val_adj), n = 4)
+      )
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    #facet_wrap(~cell_type)+
+    geom_hline(yintercept=2, linetype = 2)+
+    scale_x_continuous(limits = c(-5.5, 5.5))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank()
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2
+
+
+#gene reference version
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_labels <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=20)
+DE_VolcanoPlot_DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2_reference <- DE_VolcanoPlot_DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2 + AstroLow_Cluster0.vs.AstroHigh_Cluster2_labels
+
+#Save
+ggsave(paste0(astro_de.path, "DE_VolcanoPlot_DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2.png"),            DE_VolcanoPlot_DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2,           device='png', width = 3, height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "DE_VolcanoPlot_DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2_reference.png"),  DE_VolcanoPlot_DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2_reference, device='png', width = 30, height=22.5, units='in', dpi=600)
+
+```
+
+
+
+###3. Downsample Cells for Equivalent Viral Load Across Cluster 0 ("Cluster 1" in manuscript) vs Cluster 1 ("Cluster 2" in manuscript)
+```{r downampling CBC by Viral Load, echo=FALSE}
+
+#Split the high and low viral load cells for independent tiling
+tha.celltype.infections.summary_astrocytes_CLEAN2_minimal_HighLoadCells <-
+  tha.celltype.infections.summary_astrocytes_CLEAN2 %>%
+    #filter(Experiment %in% c('Tha_5', 'Tha_05', '2P4M_05')) %>%
+    select(CBC, ident, Experiment, Strain, Titer, Replicate, TotalUMIs, TotalHost, TotalViral, ViralLoad, seurat.include, Tube, CoarseCellType) %>%
+    arrange(desc(ViralLoad)) %>%
+    filter(ViralLoad >= 0.1) %>%
+    mutate(ViralLoad_Tiles = ntile(n = 5))
+
+tha.celltype.infections.summary_astrocytes_CLEAN2_minimal_LowLoadCells <-
+  tha.celltype.infections.summary_astrocytes_CLEAN2 %>%
+    #filter(Experiment %in% c('Tha_5', 'Tha_05', '2P4M_05')) %>%
+    select(CBC, ident, Experiment, Strain, Titer, Replicate, TotalUMIs, TotalHost, TotalViral, ViralLoad, seurat.include, Tube, CoarseCellType) %>%
+    arrange(desc(ViralLoad)) %>%
+    filter(ViralLoad < 0.1) %>%
+    mutate(ViralLoad_Tiles = ntile(n = 10))
+
+#Note, I tested the number of cells returned as a function of ntile number. The more tiles, the fewer cells but more stringent the similarity will be between the ViralLoad Distributions. I assessed this for ntile = 10, 15, 25, 50 and 100. I found ntile = 15 was the best compromise.
+set.seed(1)
+
+DownSampleCellsByViralLoadTile <- function(tbl){
+  return_list <- list() #make a list for returning each sampled tile
+  
+  for(i in 1:max(tbl$ViralLoad_Tiles)){
+  
+  print(i)
+  test_temp <-
+    tbl %>%
+    filter(ViralLoad_Tiles == i)
+  
+  table_temp <- 
+    test_temp %>%
+    count(ident, .drop = FALSE)
+  
+  samples_ident0 <-
+    table_temp %>%
+    filter(ident == 0) %>%
+    pull(n) 
+  
+  samples_ident2 <-
+    table_temp %>%
+    filter(ident == 2) %>%
+    pull(n) 
+  
+  samples_from_tile = min(samples_ident0, samples_ident2)
+  
+  #if(samples_ident0 == 0 | samples_ident2 == 0){ samples_from_tile = 0}
+  
+  print(paste0("Samples from Tile:", samples_from_tile))
+  
+  test_resampled <-
+   test_temp %>%
+   group_by(ident) %>%
+   slice_sample(n = samples_from_tile)
+  
+  print(table(test_resampled$ident))
+  
+  return_list[[i]] <- test_resampled
+  
+  
+}
+return(return_list)
+  
+}
+
+ViralLoadSamplesListHigh <- DownSampleCellsByViralLoadTile(tbl = tha.celltype.infections.summary_astrocytes_CLEAN2_minimal_HighLoadCells)
+ViralLoadSamplesListLow  <- DownSampleCellsByViralLoadTile(tbl = tha.celltype.infections.summary_astrocytes_CLEAN2_minimal_LowLoadCells)
+
+tha.celltype.infections.summary_astrocytes_CLEAN2_ViralLoadDownSampled_by_Ident <- bind_rows(ViralLoadSamplesListHigh, ViralLoadSamplesListLow, .id = "column_label")
+
+ggplot(tha.celltype.infections.summary_astrocytes_CLEAN2_ViralLoadDownSampled_by_Ident, aes(x = ViralLoad, fill = ident))+
+  geom_histogram()+
+  facet_wrap(~ViralLoad_Tiles)
+
+ggplot(tha.celltype.infections.summary_astrocytes_CLEAN2_ViralLoadDownSampled_by_Ident, aes(x = ViralLoad, fill = ident))+
+  geom_histogram()
+
+saveRDS(object = tha.celltype.infections.summary_astrocytes_CLEAN2_ViralLoadDownSampled_by_Ident,
+        file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/summaries/tha.celltype.infections.summary_astrocytes_CLEAN2_ViralLoadDownSampled_by_Ident.RDS")
+
+
+```
+
+```{r plot downsampled viral loads by ident, echo=FALSE}
+astro.plot.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/"
+
+tha.celltype.infections.summary_astrocytes_CLEAN2_ViralLoadDownSampled_by_Ident_log10 <-
+  tha.celltype.infections.summary_astrocytes_CLEAN2_ViralLoadDownSampled_by_Ident %>%
+  filter(ident %in% c(0,2)) %>%
+  mutate(
+    lViralLoad = log10(ViralLoad),
+    lTotalHost = log10(TotalHost),
+    lTotalViral = log10(TotalViral),
+    lTotalUMIs = log10(TotalUMIs),
+    ) %>%
+  filter(Experiment %in% c('Tha_5', 'Tha_05', '2P4M_05')) %>%
+  ggplot(aes(lViralLoad, y=after_stat(density)))+
+  geom_histogram(aes(fill = ident), bins=60, position='identity', alpha=0.6)+
+  geom_density(aes(group = ident), color='black', adjust = 1.2, linewidth = 1.7)+
+  geom_density(aes(color = ident), adjust = 1.2, linewidth = 1.5)+
+  geom_vline(xintercept = -1.5, linetype="dotted", color = "black", linewidth=0.75)+
+  scale_color_manual(values = c(Astrocyte_color, AstrocteReactive_color))+
+  scale_fill_manual(values =  c(Astrocyte_color, AstrocteReactive_color))+
+  scale_x_continuous(name = "% Rabies UMIs", breaks = c(-2.0, -1.5, -1.0, -0.5), labels = c( "1","3", "10", "30"))+
+  ylab("Density")+
+  theme_bw()+
+  theme(axis.text.x = element_text (size = 12,  family = "Arial", face = "plain", color = "black"),
+         axis.text.y = element_blank(),
+         axis.title = element_text (size =12, family = "Arial", face = "bold", color = "black"),
+         strip.background = element_blank(),
+         strip.text = element_text (size =16, family = "Arial", face = "bold", color = "black"),
+         plot.margin = margin(t = 0, r = 1, b = 0, l = 1, unit = "cm")) -> ViralLoad_DensityPlots_log10_Astro.low_vs_Astro.high_MatchedViralLoad.plot
+
+ggsave(filename =  paste0(astro.plot.path, "density/ViralLoad_DensityPlots_log10_Astro.low_vs_Astro.high_MatchedViralLoad.plot.png"), plot = ViralLoad_DensityPlots_log10_Astro.low_vs_Astro.high_MatchedViralLoad.plot,
+       device='png', width = 18, height=10, units='cm', dpi=600)
+
+
+```
+
+```{r DE analysis of ident 0 vs 2 using viral load downsampled dataset, echo = FALSE}
+
+
+
+tha.genome <- c('Tha_N', 'Tha_P', 'Tha_M', 'Tha_G', 'Tha_L')
+
+
+tha.celltype.infections.summary_astrocytes_CLEAN2_ViralLoadDownSampled_by_Ident %>%
+{
+  restricted.summary <-   mutate(.,
+    lViralLoad = log10(ViralLoad),
+    lTotalHost = log10(TotalHost),
+    lTotalViral = log10(TotalViral),
+    lTotalUMIs = log10(TotalUMIs),
+    ) %>% 
+    filter(.,
+    seurat.include == 'yes',
+    #Experiment == '2P4M_05',
+    #CoarseCellType == 'Astrocyte',
+    ident %in% c("0", "2")
+    ) %>% 
+    mutate(Experiment = factor(lViralLoad > -0.8, levels=c(TRUE, FALSE))) %>%
+    mutate(AstroState = case_when(ident == "0" ~ "AstroLow", ident == "2" ~ "AstroHigh", TRUE ~ NA))
+  
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')[!(rownames(GetAssayData(tha.seurat, slot = 'count')) %in% tha.genome), restricted.summary$CBC]
+  
+  # Libra::run_de(
+  #   restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+  #   replicate_col = 'Tube', cell_type_col = 'AstroState', label_col='Experiment',
+  #   de_method="DESeq2", de_type="LRT"
+  # )
+  
+    Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+    replicate_col = 'Tube', 
+    cell_type_col = 'CoarseCellType', label_col='AstroState',
+    de_method="DESeq2", de_type="LRT"
+  )
+    
+} -> DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2
+
+#Save
+saveRDS(object = DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2, file = paste0(de.data.path, "DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2.RDS"))
+
+
+
+```
+
+```{r Volcano Plots Matched Viral Load, echo = FALSE}
+
+DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2 <- readRDS(file = paste0(de.data.path, "DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2.RDS"))
+
+
+### Volcano Plots with Top Genes Visualized
+
+#DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 MATCHED VIRAL LOAD
+DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  {
+    temp <- filter(., cell_type %in% c('Astrocyte')
+    ) 
+    
+    colorgenes <- filter(temp, -log10(p_val_adj) > 2)
+    
+    labelgenes <- temp %>%
+      mutate(n = setNames(c(400,400,400), unique(cell_type))[cell_type]) %>%
+      #group_by(cell_type) %>%
+      arrange(desc(-log(p_val_adj))) %>%
+      filter(row_number() <= n[1]) %>%
+      dplyr::select(-n) %>%
+      bind_rows(
+        filter(temp, cell_type == 'Astrocyte', avg_logFC < 0) %>%
+          slice_max(-log10(p_val_adj), n = 4)
+      )
+  
+  ggplot(labelgenes, aes(avg_logFC, -log10(p_val_adj), label=gene))+
+    geom_point(size=0.5, data = temp) +
+    geom_point(size=0.5, data=colorgenes, color='red') +
+    #facet_wrap(~cell_type)+
+    geom_hline(yintercept=2, linetype = 2)+
+    scale_x_continuous(limits = c(-5.5, 5.5))+
+    theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank()
+      # strip.text=element_blank(),
+      )
+  } -> DE_VolcanoPlot_DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2
+
+
+#gene reference version
+MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2_labels <- ggrepel::geom_text_repel(size = 2, ylim=c(5, NA), min.segment.length=0.1, max.overlaps=20)
+DE_VolcanoPlot_DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2_reference <- DE_VolcanoPlot_DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2 + MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2_labels
+
+#Save
+ggsave(paste0(astro_de.path, "DE_VolcanoPlot_DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2.png"),            DE_VolcanoPlot_DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2,           device='png', width = 3, height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "DE_VolcanoPlot_DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2_reference.png"),  DE_VolcanoPlot_DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2_reference, device='png', width = 30, height=22.5, units='in', dpi=600)
+
+
+```
+
+
+```{r Full vs Matched Cluster 0 vs Cluster 2 LFC scatterplot, echo = FALSE}
+
+DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2_PreJoin <-
+  DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  mutate(avg_logFC_Matched = avg_logFC, p_val_Matched  = p_val, p_val_adj_Matched = p_val_adj) %>%
+  select(-c(cell_type, avg_logFC, p_val, p_val_adj, de_family, de_method, de_type))
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_PreJoin <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+    mutate(avg_logFC_Full = avg_logFC, p_val_Full = p_val, p_val_adj_Full = p_val_adj) %>%
+  select(-c(cell_type, avg_logFC, p_val, p_val_adj, de_family, de_method, de_type))
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched <- inner_join(x = DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2_PreJoin, y = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_PreJoin, by = "gene")
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched$de_family <- unique(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2$de_family)
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched$de_method <- unique(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2$de_method)
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched$de_type   <- unique(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2$de_type)
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched %>%
+  mutate(p_val_adj_category = case_when((p_val_adj_Full < 0.05 & p_val_adj_Matched < 0.05) ~ "both", 
+                                        (p_val_adj_Full < 0.05 & p_val_adj_Matched > 0.05) ~ "full",
+                                        (p_val_adj_Full > 0.05 & p_val_adj_Matched < 0.05) ~ "matched",
+                                        (p_val_adj_Full > 0.05 & p_val_adj_Matched > 0.05) ~ "none",
+                                        TRUE ~ NA)) %>%
+  mutate(p_val_adj_category = factor(p_val_adj_category, levels = c("both", "full", "matched", "none")))
+
+saveRDS(object = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched, file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/de/DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched.RDS")
+
+#Scatterplot
+
+astro.scatter.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/scatter/"
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched_OnlySig <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched %>%
+  filter(p_val_adj_category %in% c("both", "full", "matched")) %>%
+  group_by(p_val_adj_category) %>%
+  arrange(desc(p_val_adj_category), .by_group = TRUE) %>%
+  ungroup() %>%
+  dplyr::arrange(-dplyr::row_number())
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched.labels.plot <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched_OnlySig, aes(x = avg_logFC_Full, y = avg_logFC_Matched, color = p_val_adj_category, alpha = p_val_adj_category))+
+    geom_point()+
+    scale_color_manual(values = c("#39FF14", "#1c9099", "#d7301f"))+
+    scale_alpha_manual(values = c(0.6, 0.6, 0.6))+
+    scale_x_continuous(limits = c(-5, 7.5))+
+    scale_y_continuous(limits = c(-5.5, 5.5))+
+    geom_hline(yintercept = 0, color = "black", linewidth = 1, linetype = "dotted")+
+    geom_vline(xintercept = 0, color = "black", linewidth = 1, linetype = "dotted")+
+    theme_bw()
+
+ggsave(paste0(astro.scatter.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched.labels.plot.png"),
+       DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched.labels.plot, device='png', width = 4, height=4, units='in', dpi=600)
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched.plot <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched_OnlySig, aes(x = avg_logFC_Full, y = avg_logFC_Matched, color = p_val_adj_category, alpha = p_val_adj_category))+
+    geom_point()+
+    scale_color_manual(values = c("#39FF14", "#1c9099", "#d7301f"))+
+    scale_alpha_manual(values = c(0.6, 0.6, 0.6))+
+    scale_x_continuous(limits = c(-5, 7.5))+
+    scale_y_continuous(limits = c(-5.5, 5.5))+
+    geom_hline(yintercept = 0, color = "black", linewidth = 1, linetype = "dotted")+
+    geom_vline(xintercept = 0, color = "black", linewidth = 1, linetype = "dotted")+
+    theme_bw()+
+    guides(color = "none", alpha = "none")
+
+ggsave(paste0(astro.scatter.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched.plot.png"),
+       DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched.plot, device='png', width = 4, height=4, units='in', dpi=600)
+
+cor(x = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched_OnlySig$avg_logFC_Full, y = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched_OnlySig$avg_logFC_Matched)
+
+```
+
+#3. STATISTICS AND DATA DESCRIPTION
+```{r stats and description, echo = FALSE}
+#0. Quantify the number of DE genes enriched or depleted from "Cluster 2"
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_UP <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC > 0)
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_DOWN <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC < 0)
+
+nrow(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_UP)    #n = 2,343
+nrow(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_DOWN)  #n = 6,521
+
+
+#1. Quantify overlap of significantly DE across the full versus downsampled Cluster1/2 comparison
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched_Summary <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_Full_vs_Matched %>%
+  filter(p_val_adj_category %in% c("both", "full", "matched")) %>%
+  count(p_val_adj_category)
+
+
+
+
+
+
+
+
+
+```

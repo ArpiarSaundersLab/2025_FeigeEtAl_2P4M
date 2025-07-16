@@ -1,0 +1,71 @@
+---
+title: "Single-cell based analysis of Tha astrocyte subpopulations"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(readxl)
+library(xlsx)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load DE Data
+```{r load DE data, echo=FALSE}
+
+DE.tha05.vs.NI.CoarseCellType                               <- readRDS(DE.tha05.vs.NI.CoarseCellType.path)
+DE.tha2p4m.vs.tha05.CoarseCellType                          <- readRDS(DE.tha2p4m.vs.tha05.CoarseCellType.path)
+DE.tha05.vs.NI.CellType                                     <- readRDS(DE.tha05.vs.NI.CellType.path)
+DE.tha2p4m.vs.tha05.CellType                                <- readRDS(DE.tha2p4m.vs.tha05.CellType.path)
+DE.tha05.vs.tha5.CellType                                   <- readRDS(DE.tha05.vs.tha5.CellType.path)
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2                  <- readRDS(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.path)
+DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2 <- readRDS(DE.MatchedViralLoad_AstroLow_Cluster0.vs.AstroHigh_Cluster2.path)
+mg_ni_vs_tha05_de                                           <- readRDS(mg_ni_vs_tha05_de.path)
+mg_ni_vs_2p4m05_de                                          <- readRDS(mg_ni_vs_2p4m05_de.path)                            
+mg_ni_vs_tha5_de                                            <- readRDS(mg_ni_vs_tha5_de.path)                            
+
+```
+
+#1. Save XSLX File
+```{r save de data for manuscript, echo=FALSE}
+sup_table.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/supplemental_tables/"
+
+
+
+#Write CSV Files. I then copy/pasted these into the Table_S1_v1.xslx file
+write_csv(x = DE.tha05.vs.NI.CoarseCellType[,1:5],      file = paste0(sup_table.path, "1_tha05.vs.NI.CCT_Fig4A.csv"))
+write_csv(x = DE.tha2p4m.vs.tha05.CoarseCellType[,1:5], file = paste0(sup_table.path, "2_tha2p4m.vs.tha05.CCT_Fig4C.csv"))
+
+write_csv(x = DE.tha05.vs.NI.CellType[,1:5],            file = paste0(sup_table.path, "3_tha05.vs.NI.CT_FigS4A_t.csv"))
+write_csv(x = DE.tha2p4m.vs.tha05.CellType[,1:5],       file = paste0(sup_table.path, "4_tha2p4m.vs.tha05.CT_FigS4A_m.csv"))
+write_csv(x = DE.tha05.vs.tha5.CellType[,1:5],          file = paste0(sup_table.path, "5_tha05.vs.tha5.CT_FigS4A_b.csv"))
+
+write_csv(x = mg_ni_vs_tha05_de[,c(1,2,3,8,9)],         file = paste0(sup_table.path, "6_tha05.vs.NI.Mg.FigS7l.csv"))
+write_csv(x = mg_ni_vs_2p4m05_de[,c(1,2,3,8,9)],        file = paste0(sup_table.path, "7_tha2p4m.vs.NI.Mg.FigS7c.csv"))
+write_csv(x = mg_ni_vs_tha5_de[,c(1,2,3,8,9)],          file = paste0(sup_table.path, "8_tha5.vs.NI.Mg.FigS7r.csv"))
+
+
+
+
+#Attempt to write directly to XLSX -- Not working
+write.xlsx(as.data.frame(DE.tha05.vs.NI.CoarseCellType),                    file=paste0(sup_table.path, "Table_S1.xlsx"),               sheetName="tha05.vs.NI.CCT_Fig4A",              row.names=FALSE)
+write.xlsx(as.data.frame(DE.tha2p4m.vs.tha05.CoarseCellType),               file=paste0(sup_table.path, "Table_S1.xlsx"),               sheetName="tha2p4m.vs.tha05.CCT_Fig4C",         row.names=FALSE, append=TRUE)
+
+write.xlsx(as.data.frame(DE.tha05.vs.NI.CellType),                          file=paste0(sup_table.path, "Table_S1.xlsx"),               sheetName="tha05.vs.NI.CT_FigS4A_t",            row.names=FALSE, append=TRUE)
+write.xlsx(as.data.frame(DE.tha2p4m.vs.tha05.CellType),                     file=paste0(sup_table.path, "Table_S1.xlsx"),               sheetName="tha2p4m.vs.tha05.CT_FigS4A_m",       row.names=FALSE, append=TRUE)
+write.xlsx(as.data.frame(DE.tha05.vs.tha5.CellType),                        file=paste0(sup_table.path, "Table_S1.xlsx"),               sheetName="tha05.vs.tha5.CT_FigS4A_b",          row.names=FALSE, append=TRUE)
+
+write.xlsx(as.data.frame(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2),       file=paste0(sup_table.path, "Table_S1.xlsx"),               sheetName="AstroClust0.vs.Cluster2_Fig5D",      row.names=FALSE, append=TRUE)
+write.xlsx(as.data.frame(DE.tha05.vs.tha5.CellType),                        file=paste0(sup_table.path, "Table_S1.xlsx"),               sheetName="MVL_AstroClust0.vs.Cluster2_S5B",    row.names=FALSE, append=TRUE)
+
+write.xlsx(as.data.frame(mg_ni_vs_tha05_de),                                file=paste0(sup_table.path, "Table_S1.xlsx"),               sheetName="tha05.vs.NI.Mg.FigS7l",               row.names=FALSE, append=TRUE)
+write.xlsx(as.data.frame(mg_ni_vs_2p4m05_de),                               file=paste0(sup_table.path, "Table_S1.xlsx"),               sheetName="tha2p4m.vs.NI.Mg.FigS7c",             row.names=FALSE, append=TRUE)
+write.xlsx(as.data.frame(mg_ni_vs_tha5_de),                                 file=paste0(sup_table.path, "Table_S1.xlsx"),               sheetName="tha5.vs.NI.Mg.FigS7r",                row.names=FALSE, append=TRUE)
+
+```

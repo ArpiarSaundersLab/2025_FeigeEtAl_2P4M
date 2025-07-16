@@ -1,0 +1,347 @@
+----------------------
+Setup / Generate Astro Subclusters
+----------------------
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(Matrix)
+library(qs)
+library(data.table)
+library(cowplot)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load Data
+```{r load data, echo=FALSE}
+
+###NPH
+nph.astro.path      <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/human_astrocyte_snRNAseq/organized_data/Human/brain/snRNA/NPH/Astro_data_arranged_updatedId_final_batches.qs"
+nph.annotation.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/human_astrocyte_snRNAseq/annotations/Astro_Final_anno.qs"
+  
+nph.astro                        <- qread(nph.astro.path)
+nph.astro.annotation             <- qread(nph.annotation.path)
+
+
+###COVID
+covid.astro.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/human_astrocyte_snRNAseq/Fullard_et_al/GSE164485_gene_expression_20210104.csv.gz"
+
+covid.annotation.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/human_astrocyte_snRNAseq/Fullard_et_al/GSE164485_meta_data_20210104.csv"
+
+covid.astro            <- fread(input = covid.astro.path, header = T)
+covid.astro.annotation <- read_csv(file = covid.annotation.path)
+
+###Tha
+tha.celltype.infections.summary_astrocytes_CLEAN2 <-  readRDS(tha.celltype.infections.summary_astrocytes_CLEAN2.path)
+astro.seurat                                      <- read_rds(astro.seurat.path)
+
+#results of DE Analysis ("5a_host_gene_expression_PP_Arpy_v1.Rmd")
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2         <- readRDS(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.path)
+
+```
+
+#1. Define save paths
+```{r save paths, echo = FALSE}
+
+gene.set.path               <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/gene_sets/"
+gene_set_scores.output.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/gene_sets/gene_set_scores/"
+
+```
+
+#2a. Run Seurat Normalization for the NPH Astrocytes 
+```{r create a SO for just the NPH astrocytes, echo=FALSE}
+
+nph.astro.seurat <- CreateSeuratObject(counts = nph.astro@assays@data$counts)
+nph.astro.seurat <- NormalizeData(nph.astro.seurat)
+nph.astro.seurat <- FindVariableFeatures(nph.astro.seurat)
+nph.astro.seurat <- ScaleData(nph.astro.seurat)
+
+saveRDS(object = nph.astro.seurat, file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/seurat_obj/nph.astro.seurat.RDS")
+
+
+
+```
+
+#2b. Run Seurat Normalization for the COVID Astrocytes 
+```{r create a SO for just the COVID astrocytes, echo=FALSE}
+
+covid.astro.annotation_justAstro <-
+  covid.astro.annotation %>%
+  filter(celltype %in% c("Ast1", "Ast2")) %>%
+  rename(...1 = "CBC")
+
+covid.astro_justAstro             <- covid.astro[V1 %in% covid.astro.annotation_justAstro$CBC]
+covid.astro_justAstro_t           <- as.matrix(transpose(covid.astro_justAstro))
+colnames(covid.astro_justAstro_t) <- as.character(covid.astro_justAstro_t[1,])
+covid.astro_justAstro_t           <- covid.astro_justAstro_t[-1,]
+rownames(covid.astro_justAstro_t) <- colnames(covid.astro_justAstro)[-1]
+class(covid.astro_justAstro_t) <- "numeric"
+
+covid.astro.seurat <- CreateSeuratObject(counts = covid.astro_justAstro_t)
+covid.astro.seurat <- NormalizeData(covid.astro.seurat)
+covid.astro.seurat <- FindVariableFeatures(covid.astro.seurat)
+covid.astro.seurat <- ScaleData(covid.astro.seurat)
+
+#Push additional metadata
+temp.covid.meta <- as_tibble(covid.astro.seurat@meta.data, rownames = "CBC")
+
+covid.astro.annotation <-
+  covid.astro.annotation %>%
+  rename("...1" = "CBC")
+
+temp.covid.meta2 <- left_join(x = temp.covid.meta, y = covid.astro.annotation, by = "CBC")
+temp.covid.meta2_matrix <- as.data.frame(temp.covid.meta2)
+rownames(temp.covid.meta2_matrix) <- temp.covid.meta2$CBC
+temp.covid.meta2_matrix <- temp.covid.meta2_matrix[,-1]
+
+covid.astro.seurat <- AddMetaData(object = covid.astro.seurat, metadata = temp.covid.meta2[,-c(1:3)])
+
+saveRDS(object = covid.astro.seurat, file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/seurat_obj/covid.astro.seurat.RDS")
+
+```
+
+
+#3. Save Astrocyte Cluster 0 vs Cluster 2 DE Gene Sets
+```{r define gene sets, echo = FALSE}
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetUP_adjp01_lfc_0 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC > 0) %>%
+  pull(gene) %>%
+  as.character()
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetDOWN_adjp01_lfc_0 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC < 0) %>%
+  pull(gene) %>%
+  as.character()
+
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetUP_adjp01_lfc_1 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC > 1) %>%
+  pull(gene) %>%
+  as.character()
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetDOWN_adjp01_lfc_1 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC < -1) %>%
+  pull(gene) %>%
+  as.character()
+
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetUP_adjp01_lfc_1.5 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC > 1.5) %>%
+  pull(gene) %>%
+  as.character()
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetDOWN_adjp01_lfc_1.5 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC < -1.5) %>%
+  pull(gene) %>%
+  as.character()
+
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetUP_adjp01_lfc_2 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC > 2) %>%
+  pull(gene) %>%
+  as.character()
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetDOWN_adjp01_lfc_2 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC < -2) %>%
+  pull(gene) %>%
+  as.character()
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetUP_adjp01_lfc_2.5 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC > 2.5) %>%
+  pull(gene) %>%
+  as.character()
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetDOWN_adjp01_lfc_2.5 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC < -2.5) %>%
+  pull(gene) %>%
+  as.character()
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets <- list("GeneSetUP_adjp01_lfc_0"     = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetUP_adjp01_lfc_0,
+                                                         "GeneSetDOWN_adjp01_lfc_0"    = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetDOWN_adjp01_lfc_0,
+                                                         "GeneSetUP_adjp01_lfc_1"     = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetUP_adjp01_lfc_1,
+                                                         "GeneSetDOWN_adjp01_lfc_1"   = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetDOWN_adjp01_lfc_1,
+                                                         "GeneSetUP_adjp01_lfc_1.5"   = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetUP_adjp01_lfc_1.5,
+                                                         "GeneSetDOWN_adjp01_lfc_1.5" = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetDOWN_adjp01_lfc_1.5,
+                                                         "GeneSetUP_adjp01_lfc_2"     = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetUP_adjp01_lfc_2,
+                                                         "GeneSetDOWN_adjp01_lfc_2"   = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetDOWN_adjp01_lfc_2,
+                                                         "GeneSetUP_adjp01_lfc_2.5"     = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetUP_adjp01_lfc_2.5,
+                                                         "GeneSetDOWN_adjp01_lfc_2.5"   = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetDOWN_adjp01_lfc_2.5)
+
+
+
+saveRDS(object = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets, file = paste0(gene.set.path, "AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets.RDS"))
+
+```
+
+
+#4. Generate Gene Set Scores for Tha, NPH and COVID datasets 
+```{r assign gene set scores, echo = FALSE}
+###Tha
+Tha_GeneSetScores <- as_tibble(x = astro.seurat@meta.data, rownames = "CBC")
+
+temp_summary_astro <-
+  tha.celltype.infections.summary_astrocytes_CLEAN2 %>%
+  select(CBC, ident)
+
+Tha_GeneSetScores <- left_join(x = Tha_GeneSetScores, y = temp_summary_astro, by = "CBC")
+
+#Calculate Cell Scores
+Tha_GeneSetScores$GeneSetUP_adjp01_lfc_0       <- rowSums(FetchData(object = astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_0,     layer = "data"))
+Tha_GeneSetScores$GeneSetDOWN_adjp01_lfc_0     <- rowSums(FetchData(object = astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_0,   layer = "data"))
+Tha_GeneSetScores$GeneSetUP_adjp01_lfc_1       <- rowSums(FetchData(object = astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1,     layer = "data"))
+Tha_GeneSetScores$GeneSetDOWN_adjp01_lfc_1     <- rowSums(FetchData(object = astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_1,   layer = "data"))
+Tha_GeneSetScores$GeneSetUP_adjp01_lfc_1.5     <- rowSums(FetchData(object = astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1.5,   layer = "data"))
+Tha_GeneSetScores$GeneSetDOWN_adjp01_lfc_1.5   <- rowSums(FetchData(object = astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_1.5, layer = "data"))
+Tha_GeneSetScores$GeneSetUP_adjp01_lfc_2       <- rowSums(FetchData(object = astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_2,     layer = "data"))
+Tha_GeneSetScores$GeneSetDOWN_adjp01_lfc_2     <- rowSums(FetchData(object = astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_2,   layer = "data"))
+Tha_GeneSetScores$GeneSetUP_adjp01_lfc_2.5     <- rowSums(FetchData(object = astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_2.5,     layer = "data"))
+Tha_GeneSetScores$GeneSetDOWN_adjp01_lfc_2.5   <- rowSums(FetchData(object = astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_2.5,   layer = "data"))
+
+#Save
+saveRDS(object = Tha_GeneSetScores, file = paste0(gene_set_scores.output.path, "Tha_GeneSetScores.RDS"))
+
+
+###NPH
+NPH_GeneSetScores <- as_tibble(x = nph.astro.seurat@meta.data, rownames = "CBC")
+
+#Calculate Cell Scores
+NPH_GeneSetScores$GeneSetUP_adjp01_lfc_0       <- rowSums(FetchData(object = nph.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_0,     layer = "data"))
+NPH_GeneSetScores$GeneSetDOWN_adjp01_lfc_0     <- rowSums(FetchData(object = nph.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_0,   layer = "data"))
+NPH_GeneSetScores$GeneSetUP_adjp01_lfc_1       <- rowSums(FetchData(object = nph.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1,     layer = "data"))
+NPH_GeneSetScores$GeneSetDOWN_adjp01_lfc_1     <- rowSums(FetchData(object = nph.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_1,   layer = "data"))
+NPH_GeneSetScores$GeneSetUP_adjp01_lfc_1.5     <- rowSums(FetchData(object = nph.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1.5,   layer = "data"))
+NPH_GeneSetScores$GeneSetDOWN_adjp01_lfc_1.5   <- rowSums(FetchData(object = nph.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_1.5, layer = "data"))
+NPH_GeneSetScores$GeneSetUP_adjp01_lfc_2       <- rowSums(FetchData(object = nph.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_2,     layer = "data"))
+NPH_GeneSetScores$GeneSetDOWN_adjp01_lfc_2     <- rowSums(FetchData(object = nph.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_2,   layer = "data"))
+NPH_GeneSetScores$GeneSetUP_adjp01_lfc_2.5     <- rowSums(FetchData(object = nph.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_2.5,     layer = "data"))
+NPH_GeneSetScores$GeneSetDOWN_adjp01_lfc_2.5   <- rowSums(FetchData(object = nph.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_2.5,   layer = "data"))
+
+#Save
+saveRDS(object = NPH_GeneSetScores, file = paste0(gene_set_scores.output.path, "NPH_GeneSetScores.RDS"))
+
+
+
+###COVID
+COVID_GeneSetScores <- as_tibble(x = covid.astro.seurat@meta.data, rownames = "CBC")
+
+#Calculate Cell Scores
+COVID_GeneSetScores$GeneSetUP_adjp01_lfc_0       <- rowSums(FetchData(object = covid.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_0,     layer = "data"))
+COVID_GeneSetScores$GeneSetDOWN_adjp01_lfc_0     <- rowSums(FetchData(object = covid.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_0,   layer = "data"))
+COVID_GeneSetScores$GeneSetUP_adjp01_lfc_1       <- rowSums(FetchData(object = covid.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1,     layer = "data"))
+COVID_GeneSetScores$GeneSetDOWN_adjp01_lfc_1     <- rowSums(FetchData(object = covid.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_1,   layer = "data"))
+COVID_GeneSetScores$GeneSetUP_adjp01_lfc_1.5     <- rowSums(FetchData(object = covid.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1.5,   layer = "data"))
+COVID_GeneSetScores$GeneSetDOWN_adjp01_lfc_1.5   <- rowSums(FetchData(object = covid.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_1.5, layer = "data"))
+COVID_GeneSetScores$GeneSetUP_adjp01_lfc_2       <- rowSums(FetchData(object = covid.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_2,     layer = "data"))
+COVID_GeneSetScores$GeneSetDOWN_adjp01_lfc_2     <- rowSums(FetchData(object = covid.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_2,   layer = "data"))
+COVID_GeneSetScores$GeneSetUP_adjp01_lfc_2.5     <- rowSums(FetchData(object = covid.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_2.5,     layer = "data"))
+COVID_GeneSetScores$GeneSetDOWN_adjp01_lfc_2.5   <- rowSums(FetchData(object = covid.astro.seurat, vars = AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetDOWN_adjp01_lfc_2.5,   layer = "data"))
+
+
+#Save
+saveRDS(object = COVID_GeneSetScores, file = paste0(gene_set_scores.output.path, "COVID_GeneSetScores.RDS"))
+```
+
+#4a. Generate Gene Set Scores for Control, Permuted Gene sets from the NPH dataset that match GeneSetUP_adjp01_lfc_2 from the Tha scRNA-seq analysis
+```{r define expression-matched random gene sets, echo = FALSE}
+
+#1. Generate Expression-Tiled data upstream of sampling genes with the same expression distribution
+astro.seurat_counts_rowSums <- as_tibble(as.data.frame(rowSums(astro.seurat@assays$RNA@counts)), rownames = "gene") #generate total UMI counts for all genes in the Tha Astro analysis
+NPH_genes                   <- row.names(nph.astro.seurat@assays$RNA@counts) #extract all genes detected in the NPH snRNA-seq analysis
+
+#Tile genes by expression found in both datasets
+astro.seurat_counts_rowSums_Intersect_Tiled <-
+  astro.seurat_counts_rowSums %>%
+  dplyr::rename(UMI_count = 2) %>%
+  filter(gene %in% NPH_genes) %>%
+  arrange(UMI_count) %>%
+  mutate(UMI_tiles_10 = ntile(UMI_count, 10))
+
+#Summarize the counted tiles
+astro.seurat_counts_rowSums_Intersect_Tiled_Summary <-
+  astro.seurat_counts_rowSums_Intersect_Tiled %>%
+  filter(gene %in% AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSetUP_adjp01_lfc_2) %>%
+  dplyr::count(UMI_tiles_10)
+
+#2. Loop to collect gene set samples
+n_samples = 1000
+set.seed(1)
+
+adjp01_lfc_2.sampled.genes_1000 <- list()
+pb = txtProgressBar(min = 0, max = n_samples, initial = 0) 
+
+for(j in 1:n_samples){
+  
+    setTxtProgressBar(pb,j)
+    adjp01_lfc_2.sampled.genes_1000[[paste0("sampled.genes_", j)]] <- SampleGenesByTile(gene_tile_summary = astro.seurat_counts_rowSums_Intersect_Tiled_Summary, gene_tile = astro.seurat_counts_rowSums_Intersect_Tiled)
+}
+
+saveRDS(object = adjp01_lfc_2.sampled.genes_1000, file = paste0(gene.set.path, "adjp01_lfc_2.sampled.genes_1000.RDS"))
+
+#3. Loop to collect gene.set scores
+adjp01_lfc_2.sampled.genes_1000 <- readRDS(file = paste0(gene.set.path, "adjp01_lfc_2.sampled.genes_1000.RDS"))
+
+#pull out the CBC in otherwise column-empty tbl to hold the sampled gene scores
+NPH_GeneSetScores_ControlSampling <-
+  NPH_GeneSetScores %>%
+  select(CBC)
+
+for(k in 1:length(adjp01_lfc_2.sampled.genes_1000)){
+  
+  print(paste0("Testing Sampled Gene Set: ", k))
+  NPH_GeneSetScores_ControlSampling[ , paste0("adjp01_lfc_2.sample_", k)]   <- rowSums(FetchData(object = nph.astro.seurat, vars = adjp01_lfc_2.sampled.genes_1000[[k]],   layer = "data"))
+  
+}
+
+#Save
+saveRDS(object = NPH_GeneSetScores_ControlSampling, file = paste0(gene.set.path, "NPH_GeneSetScores_ControlSampling_1000.RDS"))
+
+
+```
+
+#4a. Generate and Save Z-scores for the real and sampled GeneSets
+```{r Z scored versions of GeneSetScores, echo=FALSE}
+
+#Make Z-Score version of the real and sampled GeneSetScores
+NPH_GeneSetScores_ControlSamplingZScore <- NPH_GeneSetScores_ControlSampling 
+
+#Add real GeneSet scores
+NPH_GeneSetScores_ControlSamplingZScore <-
+  left_join(x = NPH_GeneSetScores_ControlSamplingZScore, y = NPH_GeneSetScores, by = "CBC")
+
+NPH_GeneSetScores_ControlSamplingZScore <-
+  NPH_GeneSetScores_ControlSamplingZScore %>%
+  relocate(CBC, orig.ident)
+
+#Convert GeneSet Scores to Z-Score for each column
+temp <- apply(NPH_GeneSetScores_ControlSamplingZScore[3:ncol(NPH_GeneSetScores_ControlSamplingZScore)], 2, calculate_z)
+
+NPH_GeneSetScores_ControlSamplingZScoreFinal <- as_tibble(temp)
+rm(temp)
+
+NPH_GeneSetScores_ControlSamplingZScoreFinal$CBC          <- NPH_GeneSetScores_ControlSamplingZScore$CBC
+NPH_GeneSetScores_ControlSamplingZScoreFinal$orig.ident   <- NPH_GeneSetScores_ControlSamplingZScore$orig.ident
+
+NPH_GeneSetScores_ControlSamplingZScoreFinal <-
+  NPH_GeneSetScores_ControlSamplingZScoreFinal %>%
+  relocate(CBC, orig.ident)
+
+#Save
+saveRDS(object = NPH_GeneSetScores_ControlSamplingZScoreFinal, file = paste0(gene_set_scores.output.path, "NPH_GeneSetScores_ControlSamplingZScoreFinal.RDS"))
+
+```
+

@@ -1,0 +1,142 @@
+---
+title: "Comparing Read Distributions along the Tha genome by Technology and Condition"
+author: "Arpy"
+date: '2023-11-20'
+output: html_document
+---
+
+### Setup
+
+```{r setup-libraries, echo=FALSE, cache=FALSE}
+# libraries
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(readxl)
+library(stringr)
+#library(biomaRt)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+
+```
+
+
+#1. Load
+```{r load data, echo=F, cache=F}
+
+#Save Summary File
+Tha_RSEM_summary <- readRDS(file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/0_raw_read_analysis/output_data/Tha_RSEM_summary.RDS")
+
+tha.celltype.infections.summary <- read_rds(tha.celltype.infections.summary.path)
+```
+
+#2. Pre-processing & Data Manipulations
+```{r adding key columns using tbl, echo=F}
+
+#A. summarize RV gene expression from scRNA-seq data
+tha.summary_log10_RV_norm_expression <- 
+tha.summary_log10 %>%
+  filter(
+    Strain != 'NI', seurat.include == 'yes',
+    infected == 'yes', infected.posterior > 0.8,
+    G > 0, L > 0
+    )  %>%
+  filter(Experiment %in% c('Tha_05', '2P4M_05', 'Tha_5')) %>%
+  pivot_longer(cols=c(N,P,M,G,L), names_to='var', values_to='vals') %>%
+  group_by(CBC, var) %>%
+  mutate(RV_norm_Expression = vals/TotalViral) 
+
+tha.summary_log10_RV_norm_expression_Summary <-
+  tha.summary_log10_RV_norm_expression %>%
+  group_by(Tube, var) %>%
+  summarise(mean(RV_norm_Expression)) %>%
+  rename(Experiment = "Tube", gene = "var", norm_expression = "mean(RV_norm_Expression)") %>%
+  mutate(tissue = "scRNAseq")
+
+
+
+#B. Summarize data from bulk RNA-seq
+Tha_RSEM_summary.RVGenome <-
+  Tha_RSEM_summary %>%
+  filter(gene_id %in% c("N", "P", "M", "G", "L")) %>%
+  mutate(gene_id = factor(gene_id, levels = c("N", "P", "M", "G", "L"))) %>%
+  mutate(infection_timepoint = factor(infection_timepoint, levels = c("0", "8", "24", "40"))) %>%
+  group_by(experiment_name) %>%
+  mutate(RV_norm_Expression = TPM/sum(TPM))
+
+Tha_RSEM_summary.RVGenome.ViralLoadSummary_TPM <-
+  Tha_RSEM_summary.RVGenome %>%
+  group_by(experiment_name) %>%
+  mutate(ViralLoad_TPM = sum(TPM)) %>%
+  select(experiment_name, infection_condition, infection_timepoint, ViralLoad_TPM) %>%
+  distinct()
+
+#C. Combine sc and bulk
+Tha_RSEM_summary.RVGenome.Slim <-
+  Tha_RSEM_summary.RVGenome %>%
+  select(experiment_name, gene_id, RV_norm_Expression) %>%
+  rename(Experiment = "experiment_name", gene = "gene_id", norm_expression = "RV_norm_Expression") %>%
+  mutate(tissue = "bulkRNAseq")
+
+Tha_GeneExpression_AcrossMethodSummary <- bind_rows(tha.summary_log10_RV_norm_expression_Summary, Tha_RSEM_summary.RVGenome.Slim)
+
+saveRDS(object = Tha_GeneExpression_AcrossMethodSummary, 
+        file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/0_raw_read_analysis/output_data/Tha_GeneExpression_AcrossMethodSummary.RDS")
+
+
+#Plotting
+Tha_Genes_byCondition_TPM_plot <-
+ggplot(Tha_RSEM_summary.RVGenome, aes(x = gene_id, y = TPM, group = infection_condition, fill = infection_condition))+
+  geom_jitter(width = 0.05, size = 5, shape = 21, color = "black", )+
+  facet_grid(cols = vars(infection_timepoint))+
+  #scale_fill_manual(values = c(N_color, P_color, M_color, G_color, L_color))
+  ggtitle("TPM")
+
+ggsave(filename = "Tha_Genes_byCondition_TPM_plot.png", plot = Tha_Genes_byCondition_TPM_plot, device = "png", 
+       path = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/0_raw_read_analysis/plots/", width = 9, height = 5)
+
+
+Tha_byCondition_ViralLoad_TPM_plot <-
+ggplot(Tha_RSEM_summary.RVGenome.ViralLoadSummary_TPM, aes(x = infection_timepoint, y = ViralLoad_TPM, group = infection_condition, fill = infection_condition))+
+  geom_jitter(width = 0.3, size = 5, shape = 21, color = "black", )+
+  #facet_grid(cols = vars(infection_timepoint))+
+  #scale_fill_manual(values = c(N_color, P_color, M_color, G_color, L_color))
+  ggtitle("Viral Load TPM")
+
+
+ggsave(filename = "Tha_byCondition_ViralLoad_TPM_plot.png", plot = Tha_byCondition_ViralLoad_TPM_plot, device = "png", 
+       path = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/0_raw_read_analysis/plots/", width = 5, height = 5)
+
+
+#Across Methods
+Tha_GeneExpression_AcrossMethodSummary.Keeper <-
+  Tha_GeneExpression_AcrossMethodSummary %>%
+  mutate(gene = factor(gene, levels = c("N", "P", "M", "G", "L"))) %>%
+  filter(Experiment %in% c("A_Tha_05", "B_Tha_05", "C_Tha_05", "A_Tha_5", "B_Tha_5", "T_40_rep1", "T_40_rep2", "T_40_rep3"))
+
+Tha_GeneExpression_AcrossMethodSummary.plot <-
+  ggplot(Tha_GeneExpression_AcrossMethodSummary.Keeper, aes(x = gene, y = norm_expression, group = tissue, fill = tissue))+
+       geom_jitter(size = 8, shape = 21, width = 0.1, alpha = 0.8, stroke = 2)+
+       scale_fill_brewer(palette = "Set1")+
+       theme_gray()
+
+ggsave(filename = "Tha_GeneExpression_AcrossMethodSummary.plot.png", plot = Tha_GeneExpression_AcrossMethodSummary.plot, device = "png", 
+       path = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/0_raw_read_analysis/plots/", width = 8, height = 5)
+
+```
+
+#3. STATISTICS AND DATA DESCRIPTION
+```{r stats and description, echo = FALSE}
+
+Tha_GeneExpression_AcrossMethodSummary.Keeper_scRNAseq <-
+  Tha_GeneExpression_AcrossMethodSummary.Keeper %>%
+  filter(tissue == "scRNAseq")
+
+View(Tha_GeneExpression_AcrossMethodSummary.Keeper_scRNAseq)
+
+Tha_GeneExpression_AcrossMethodSummary.Keeper_bulkRNAseq <-
+  Tha_GeneExpression_AcrossMethodSummary.Keeper %>%
+  filter(tissue == "bulkRNAseq")
+```

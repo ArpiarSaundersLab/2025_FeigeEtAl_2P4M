@@ -1,0 +1,1176 @@
+---
+title: "Cell-autonomous functional inference of Cluster 1 and Cluster 2 Astrocyte Gene Signatures"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+
+```{r libraries and functions, message=FALSE}
+
+library(Seurat)
+library(tidyverse)
+library(readxl)
+library(dplyr)
+library(clusterProfiler)
+library(ReactomePA)
+library(enrichplot)
+library(ggtree)
+library(scales)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load Data and Define Save Paths
+```{r load data, echo=FALSE, attr.warning= FALSE}
+
+###Load
+#DE Meta1 results 
+de.meta.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/de/de_with_genemetadata/"
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta1            <- readRDS(paste0(de.meta.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta1.RDS"))
+DE.tha05.vs.NI.CellType                                     <- readRDS(DE.tha05.vs.NI.CellType.path)
+
+
+
+#Tha Seurat object and infections.summary
+tha.celltype.infections.summary <- read_rds(tha.celltype.infections.summary.path)
+tha.seurat                      <- read_rds(tha.seurat.path)
+
+
+
+#DE Astrocyte Data from Published Sources
+prakash.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/liddelow/2023_prakash/"
+hasel.path   <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/liddelow/2021_hasel/"
+
+#table 5 describes a comparison of the rodent (rat) interferon-responsive reactive astrocyte (IRRA) proteome and transcriptome
+prakash_table5.concordant    <- readxl::read_excel(path = paste0(prakash.path, "glia24494-sup-0011-tables5.xlsx"), sheet = 1)
+prakash_table5.discordant    <- readxl::read_excel(path = paste0(prakash.path, "glia24494-sup-0011-tables5.xlsx"), sheet = 2)
+prakash_table5.protein_only  <- readxl::read_excel(path = paste0(prakash.path, "glia24494-sup-0011-tables5.xlsx"), sheet = 3)
+prakash_table5.rna_only      <- readxl::read_excel(path = paste0(prakash.path, "glia24494-sup-0011-tables5.xlsx"), sheet = 4)
+prakash_table5.neither       <- readxl::read_excel(path = paste0(prakash.path, "glia24494-sup-0011-tables5.xlsx"), sheet = 5)
+
+#table 3 describes the proteome differences in human astrocytes triggered with human IL1α, TNF and human C1Q
+prakash_table3               <- readxl::read_excel(path = paste0(prakash.path, "glia24494-sup-0009-tables3.xls"), sheet = 1)
+
+
+hasel.cluster_enriched       <- readxl::read_excel(path = paste0(hasel.path, "41593_2021_905_MOESM6_ESM.xlsx"), sheet = 1)
+
+```
+```{r define output paths, echo = FALSE}
+de.data.path    <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/de/"
+astro.gsea.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/gsea/"
+```
+
+#1a. PreProcess and Save Published DE Datasets
+```{r preprocess published DE datasets, echo=FALSE}
+#Prakash Table 3 Preprocessing
+colnames(prakash_table3) <- prakash_table3[1,]
+prakash_table3           <- prakash_table3[-c(1:2),-1]
+
+prakash.3.keeper.cols <- c("p value", "TICI_VEH fold change, log 2", "Gene names")
+
+prakash_table3 <-
+  prakash_table3 %>%
+  select(prakash.3.keeper.cols) %>%
+  mutate(Significance_Prakash_3_HumanProteome = case_when(`p value` < 0.05 ~ "Significant", 
+                                                          `p value` == "4.7907535209631978e-05" ~ "Significant",
+                                                          TRUE ~ "NotSignificant")) %>%
+  rename(gene = `Gene names`)
+
+
+#Prakash Table 5 Preprocessing
+colnames(prakash_table5.concordant) <- prakash_table5.concordant[1,]
+prakash_table5.concordant <- prakash_table5.concordant[-1,-1]
+
+colnames(prakash_table5.discordant) <- prakash_table5.discordant[1,]
+prakash_table5.discordant <- prakash_table5.discordant[-1,-1]
+
+colnames(prakash_table5.protein_only) <- prakash_table5.protein_only[1,]
+prakash_table5.protein_only <- prakash_table5.protein_only[-1,-1]
+
+colnames(prakash_table5.rna_only) <- prakash_table5.rna_only[1,]
+prakash_table5.rna_only <- prakash_table5.rna_only[-1,-1]
+
+colnames(prakash_table5.neither) <- prakash_table5.neither[1,]
+prakash_table5.neither <- prakash_table5.neither[-1,-1]      
+
+prakash.5.keeper.cols <- c("gene_names", "log2FC", "pval", "log2FoldChange", "padj", "Significance")
+
+prakash_table5.concordant.simple <-
+  prakash_table5.concordant %>%
+  select(prakash.5.keeper.cols)
+
+prakash_table5.discordant.simple <-
+  prakash_table5.discordant %>%
+  select(prakash.5.keeper.cols)
+
+prakash_table5.protein_only.simple <-
+  prakash_table5.protein_only %>%
+  select(prakash.5.keeper.cols)
+
+prakash_table5.rna_only.simple <-
+  prakash_table5.rna_only %>%
+  select(prakash.5.keeper.cols)
+
+prakash_table5.neither.simple <-
+  prakash_table5.neither %>%
+  select(prakash.5.keeper.cols)
+
+prakash_table5.ALL.simple <- rbind(prakash_table5.concordant.simple, prakash_table5.discordant.simple, prakash_table5.protein_only.simple, prakash_table5.rna_only.simple, prakash_table5.neither.simple)
+
+prakash_table5.ALL.simple <- 
+  prakash_table5.ALL.simple %>%
+  mutate(gene_mouse = gene_names) %>%
+  mutate(gene = toupper(gene_names)) %>%
+  relocate(gene) %>%
+  select(-gene_names) %>%
+  mutate(Significance_Prakash_5_RodentProteome_vs_Transcriptome = case_when(Significance == "Both (concordant)(n = 67)" ~ "Concordant",
+                                  Significance == "Protein only (n = 14)" ~ "Protein_Only",
+                                  Significance == "RNA only (n = 966)" ~ "RNA_Only",
+                                  Significance == "Neither (n = 1099)" ~ "Neither",
+                                  TRUE ~ "Not_Included"))
+
+
+#Hasel DE Clusters Preprocessing
+hasel.cluster_enriched <-
+  hasel.cluster_enriched %>%
+  mutate(gene_mouse = Gene_name) %>%
+  mutate(gene = toupper(Gene_name)) %>%
+  relocate(gene) %>%
+  select(-Gene_name)
+
+hasel.cluster_enriched.cluster8 <-
+  hasel.cluster_enriched %>%
+  filter(Cluster == 8)
+
+```
+
+
+#1b. Push gene metadata to the DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta1
+```{r gene score scatter plots, echo=FALSE}
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta1 %>%
+  mutate(Hasel_Cluster8 = case_when(gene %in% hasel.cluster_enriched.cluster8$gene ~ "Cluster_8", TRUE ~ "NotCluster_8"))
+
+prakash_table5.ALL.simple_temp <-
+  prakash_table5.ALL.simple %>%
+  select(gene, Significance_Prakash_5_RodentProteome_vs_Transcriptome)
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 <- left_join(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, prakash_table5.ALL.simple_temp, by = "gene")
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 %>%
+  mutate(Significance_Prakash_5_RodentProteome_vs_Transcriptome=replace_na(Significance_Prakash_5_RodentProteome_vs_Transcriptome, "Not_Included"))
+
+prakash_table3_temp <-
+  prakash_table3 %>%
+  select(gene, Significance_Prakash_3_HumanProteome)
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 <- left_join(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, prakash_table3_temp, by = "gene")
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 %>%
+  mutate(Significance_Prakash_3_HumanProteome=replace_na(Significance_Prakash_3_HumanProteome, "Not_Included"))
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 %>%
+  mutate("Astro_0_vs_2_Sig" = case_when(p_val_adj < 0.01 & avg_logFC < 0 ~ "Astro_0_UP", 
+                                        p_val_adj < 0.01 & avg_logFC > 0 ~ "Astro_2_UP",
+                                        TRUE ~ "NotSignificant"))
+
+#Save
+de.meta.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/de/de_with_genemetadata/"
+saveRDS(object = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, file = paste0(de.meta.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2.RDS"))
+
+
+```
+
+#2a. Volcano Plotting on Published DE Datasets 
+```{r volcano plots with metadata, echo=TRUE}
+#Load
+de.meta.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/de/de_with_genemetadata/"
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 <- readRDS(file = paste0(de.meta.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2.RDS"))
+
+#save path
+astro_de.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/volcano/"
+
+###Hasel et al Cluster 8
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 %>%
+  arrange(match(Hasel_Cluster8, c("NotCluster_8", "Cluster_8")))
+
+Volcano_Hasel_Cluster8_reference <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, aes(x = avg_logFC, y = -log10(p_val_adj), color = Astro_0_vs_2_Sig, fill = Hasel_Cluster8, alpha = Hasel_Cluster8, size = Hasel_Cluster8))+
+     geom_point(shape = 21)+
+     scale_color_manual(values = c("red", "red", "grey"))+
+     scale_fill_manual(values = c("#2b8cbe", "grey"))+
+     scale_size_manual(values = c(3, 1))+
+     scale_alpha_manual(values = c(0.9,0.15))+
+     #scale_size_manual(values = c(1.5,1.5,0.5,0.5))+
+     #guides(color = "none", fill = "none", alpha = "none", size = "none")+
+     geom_hline(yintercept=2, linetype = 2)+
+     scale_x_continuous(limits = c(-5.5, 5.5))+
+     scale_y_continuous(limits = c(0, 25))+
+     theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+Volcano_Hasel_Cluster8 <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, aes(x = avg_logFC, y = -log10(p_val_adj), color = Astro_0_vs_2_Sig, fill = Hasel_Cluster8, alpha = Hasel_Cluster8, size = Hasel_Cluster8))+
+     geom_point(shape = 21)+
+     scale_color_manual(values = c("red", "red", "grey"))+
+     scale_fill_manual(values = c("#2b8cbe", "grey"))+
+     scale_size_manual(values = c(3, 1))+
+     scale_alpha_manual(values = c(0.9,0.15))+
+     guides(color = "none", fill = "none", alpha = "none", size = "none")+
+     geom_hline(yintercept=2, linetype = 2)+
+     scale_x_continuous(limits = c(-5.5, 5.5))+
+     scale_y_continuous(limits = c(0, 25))+
+     theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+#Save
+ggsave(paste0(astro_de.path, "Volcano_Hasel_Cluster8.png"),            Volcano_Hasel_Cluster8,           device='png', width = 3, height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "Volcano_Hasel_Cluster8_reference.png"),  Volcano_Hasel_Cluster8_reference, device='png', width = 30, height=22.5, units='in', dpi=600)
+
+
+###Prakesh et al Table 5 describes a comparison of the rodent (rat) interferon-responsive reactive astrocyte (IRRA) proteome and transcriptome
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 %>%
+  arrange(match(Significance_Prakash_5_RodentProteome_vs_Transcriptome, c("Not_Included", "Neither", "RNA_Only", "Protein_Only", "Concordant")))
+
+Volcano_Prakesh_Table5_reference <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, aes(x = avg_logFC, y = -log10(p_val_adj), color = Astro_0_vs_2_Sig, fill = Significance_Prakash_5_RodentProteome_vs_Transcriptome, alpha = Significance_Prakash_5_RodentProteome_vs_Transcriptome, size = Significance_Prakash_5_RodentProteome_vs_Transcriptome))+
+     geom_point(shape = 21)+
+     scale_color_manual(values = c("red", "red", "grey"))+
+     scale_fill_manual(values = c("#2b8cbe", "grey", "grey", "#d95f02", "#7570b3"))+
+     scale_size_manual(values = c(3, 1, 1, 3, 3))+
+     scale_alpha_manual(values = c(0.9,0.15, 0.15, 0.9, 0.9))+
+     geom_hline(yintercept=2, linetype = 2)+
+     scale_x_continuous(limits = c(-5.5, 5.5))+
+     scale_y_continuous(limits = c(0, 200))+
+     theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+Volcano_Prakesh_Table5 <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, aes(x = avg_logFC, y = -log10(p_val_adj), color = Astro_0_vs_2_Sig, fill = Significance_Prakash_5_RodentProteome_vs_Transcriptome, alpha = Significance_Prakash_5_RodentProteome_vs_Transcriptome, size = Significance_Prakash_5_RodentProteome_vs_Transcriptome))+
+     geom_point(shape = 21)+
+     scale_color_manual(values = c("red", "red", "grey"))+
+     scale_fill_manual(values = c("#2b8cbe", "grey", "grey", "#d95f02", "#7570b3"))+
+     scale_size_manual(values = c(2, 1, 1, 2, 2))+
+     #scale_alpha_manual(values = c(0.9,0.15, 0.15, 0.9, 0.9))+
+     scale_alpha_manual(values = c(1,0.15, 0.15, 0.3, 0.3))+
+     guides(color = "none", fill = "none", alpha = "none", size = "none")+
+     geom_hline(yintercept=2, linetype = 2)+
+     scale_x_continuous(limits = c(-5.5, 5.5))+
+     scale_y_continuous(limits = c(0, 100))+
+     theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+Volcano_Prakesh_Table5_Concordant_reference <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, aes(x = avg_logFC, y = -log10(p_val_adj), color = Astro_0_vs_2_Sig, fill = Significance_Prakash_5_RodentProteome_vs_Transcriptome, alpha = Significance_Prakash_5_RodentProteome_vs_Transcriptome, size = Significance_Prakash_5_RodentProteome_vs_Transcriptome))+
+     geom_point(shape = 21)+
+     scale_color_manual(values = c("red", "red", "grey"))+
+     scale_fill_manual(values = c("#2b8cbe", "grey", "grey", "grey", "grey"))+
+     scale_size_manual(values = c(3, 1, 1, 1, 1))+
+     #scale_alpha_manual(values = c(0.9,0.15, 0.15, 0.9, 0.9))+
+     #scale_alpha_manual(values = c(1,0.15, 0.15, 0.15, 0.15))+
+     guides(color = "none", fill = "none", alpha = "none", size = "none")+
+     geom_hline(yintercept=2, linetype = 2)+
+     scale_x_continuous(limits = c(-5.5, 5.5))+
+     scale_y_continuous(limits = c(0, 25))+
+     theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+
+Volcano_Prakesh_Table5_Concordant <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, aes(x = avg_logFC, y = -log10(p_val_adj), color = Astro_0_vs_2_Sig, fill = Significance_Prakash_5_RodentProteome_vs_Transcriptome, alpha = Significance_Prakash_5_RodentProteome_vs_Transcriptome, size = Significance_Prakash_5_RodentProteome_vs_Transcriptome))+
+     geom_point(shape = 21)+
+     scale_color_manual(values = c("red", "red", "grey"))+
+     scale_fill_manual(values = c("#2b8cbe", "grey", "grey", "grey", "grey"))+
+     scale_size_manual(values = c(3, 1, 1, 1, 1))+
+     #scale_alpha_manual(values = c(0.9,0.15, 0.15, 0.9, 0.9))+
+     scale_alpha_manual(values = c(1,0.15, 0.15, 0.15, 0.15))+
+     guides(color = "none", fill = "none", alpha = "none", size = "none")+
+     geom_hline(yintercept=2, linetype = 2)+
+     scale_x_continuous(limits = c(-5.5, 5.5))+
+     scale_y_continuous(limits = c(0, 25))+
+     theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+#Save
+ggsave(paste0(astro_de.path, "Volcano_Prakesh_Table5.png"),                       Volcano_Prakesh_Table5,                                 device='png', width = 3,  height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "Volcano_Prakesh_Table5_reference.png"),             Volcano_Prakesh_Table5_reference,                       device='png', width = 30, height=22.5, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "Volcano_Prakesh_Table5_Concordant.png"),            Volcano_Prakesh_Table5_Concordant,                      device='png', width = 3,  height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "Volcano_Prakesh_Table5_Concordant_reference.png"),  Volcano_Prakesh_Table5_Concordant_reference,            device='png', width = 30, height=22.5, units='in', dpi=600)
+
+
+
+
+###Prakesh et al Table 3 describes a human astrocytes interferon-responsive reactive astrocyte (IRRA) proteome
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 %>%
+  arrange(match(Significance_Prakash_3_HumanProteome, c("Not_Included", "NotSignificant", "Significant")))
+
+Volcano_Prakesh_Table3_reference <-
+   ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, aes(x = avg_logFC, y = -log10(p_val_adj), color = Astro_0_vs_2_Sig, fill = Significance_Prakash_3_HumanProteome, alpha = Significance_Prakash_3_HumanProteome, size = Significance_Prakash_3_HumanProteome))+
+     geom_point(shape = 21)+
+     scale_color_manual(values = c("red", "red", "grey"))+
+     scale_fill_manual(values = c("grey", "grey", "#2b8cbe"))+
+     scale_size_manual(values = c(1, 1, 3))+
+     scale_alpha_manual(values = c(0.15, 0.15, 1))+
+     #guides(color = "none", fill = "none", alpha = "none", size = "none")+
+     geom_hline(yintercept=2, linetype = 2)+
+     scale_x_continuous(limits = c(-5.5, 5.5))+
+     scale_y_continuous(limits = c(0, 25))+
+     theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+Volcano_Prakesh_Table3 <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, aes(x = avg_logFC, y = -log10(p_val_adj), color = Astro_0_vs_2_Sig, fill = Significance_Prakash_3_HumanProteome, alpha = Significance_Prakash_3_HumanProteome, size = Significance_Prakash_3_HumanProteome))+
+     geom_point(shape = 21)+
+     scale_color_manual(values = c("red", "red", "grey"))+
+     scale_fill_manual(values = c("grey", "grey", "#2b8cbe"))+
+     scale_size_manual(values = c(1, 1, 3))+
+     scale_alpha_manual(values = c(0.15, 0.15, 1))+
+     guides(color = "none", fill = "none", alpha = "none", size = "none")+
+     geom_hline(yintercept=2, linetype = 2)+
+     scale_x_continuous(limits = c(-5.5, 5.5))+
+     scale_y_continuous(limits = c(0, 25))+
+     theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+
+#Save
+ggsave(paste0(astro_de.path, "Volcano_Prakesh_Table3.png"),                       Volcano_Prakesh_Table3,                                 device='png', width = 3,  height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "Volcano_Prakesh_Table3_reference.png"),             Volcano_Prakesh_Table3_reference,                       device='png', width = 30, height=22.5, units='in', dpi=600)
+```
+#3a. GSEA Analysis
+```{r GSEA Analysis and plotting, echo = F}
+
+###DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2
+genes_to_keep <- tha.seurat@assays$RNA@meta.features %>%
+  filter(vst.mean > 0.05) %>% rownames()
+
+temp <- filter(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, gene %in% genes_to_keep,
+  cell_type == 'Astrocyte') %>%
+  mutate(stat = -log10(p_val_adj) * avg_logFC) %>%
+  filter(!is.na(stat)) %>%
+  arrange(desc(stat))
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2        <- temp$stat
+names(AstroLow_Cluster0.vs.AstroHigh_Cluster2) <- temp$gene
+
+GSEA.AstroLow_Cluster0.vs.AstroHigh_Cluster2 <- clusterProfiler::gseGO(
+  AstroLow_Cluster0.vs.AstroHigh_Cluster2,
+  ont = 'BP',
+  OrgDb = 'org.Hs.eg.db',
+  keyType = 'SYMBOL',
+  eps=1e-300
+)
+
+#Save
+saveRDS(object = GSEA.AstroLow_Cluster0.vs.AstroHigh_Cluster2, file = paste0(de.data.path, "gsea/GSEA.AstroLow_Cluster0.vs.AstroHigh_Cluster2.RDS"))
+
+
+
+###DE.tha2p4m.high.vs.low.Astrocyte
+genes_to_keep <- tha.seurat@assays$RNA@meta.features %>%
+  filter(vst.mean > 0.05) %>% rownames()
+
+temp <- filter(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, gene %in% genes_to_keep,
+  cell_type == 'Astrocyte') %>%
+  mutate(stat = -log10(p_val_adj) * avg_logFC) %>%
+  filter(!is.na(stat)) %>%
+  arrange(desc(stat))
+
+tha2p4m.high.vs.low.Astrocyte        <- temp$stat
+names(tha2p4m.high.vs.low.Astrocyte) <- temp$gene
+
+GSEA.tha2p4m.high.vs.low.Astrocyte <- clusterProfiler::gseGO(
+  tha2p4m.high.vs.low.Astrocyte,
+  ont = 'BP',
+  OrgDb = 'org.Hs.eg.db',
+  keyType = 'SYMBOL',
+  eps=1e-300
+)
+
+#Save
+saveRDS(object = GSEA.tha2p4m.high.vs.low.Astrocyte, file = paste0(de.data.path, "gsea/GSEA.tha2p4m.high.vs.low.Astrocyte.RDS"))
+
+
+
+###DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2
+genes_to_keep <- tha.seurat@assays$RNA@meta.features %>%
+  filter(vst.mean > 0.05) %>% rownames()
+
+temp <- filter(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2, gene %in% genes_to_keep,
+  cell_type == 'Astrocyte') %>%
+  mutate(stat = -log10(p_val_adj) * avg_logFC) %>%
+  filter(!is.na(stat)) %>%
+  arrange(desc(stat))
+
+tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2        <- temp$stat
+names(tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2) <- temp$gene
+
+GSEA.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2 <- clusterProfiler::gseGO(
+  tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2,
+  ont = 'BP',
+  OrgDb = 'org.Hs.eg.db',
+  keyType = 'SYMBOL',
+  eps=1e-300
+)
+
+#Save
+saveRDS(object = GSEA.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2, file = paste0(de.data.path, "gsea/GSEA.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2.RDS"))
+
+
+
+#Visualize GSEA Results
+#Simplify
+GSEA.AstroLow_Cluster0.vs.AstroHigh_Cluster2_simplify       <- clusterProfiler::simplify(GSEA.AstroLow_Cluster0.vs.AstroHigh_Cluster2, cutoff=0.7, by="p.adjust", select_fun=min)
+
+#Generate Plots
+GSEA.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2.plot                         <- enrichplot::gseaplot2(GSEA.AstroLow_Cluster0.vs.AstroHigh_Cluster2, geneSetID = 1:10, ES_geom = "line")
+GSEA.AstroLow_Cluster0.vs.AstroHigh_Cluster2_simplify.plot                        <- enrichplot::gseaplot2(GSEA.AstroLow_Cluster0.vs.AstroHigh_Cluster2_simplify, geneSetID = 1:10, ES_geom = "line")
+
+```
+
+###REACTOME Analysis
+
+#4a. REACTOME Pre-Processing
+```{r REACTOME analysis and plotting, echo=FALSE}
+####################################
+###REACTOME Analysis
+###################################
+
+#Preprocess DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 for REACTOME analysis
+#Add ENTREZID
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.ENTREZID     <- bitr(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2$gene, fromType="SYMBOL", toType="ENTREZID", OrgDb="org.Hs.eg.db")
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.ENTREZID_tbl <- as_tibble(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.ENTREZID)
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta2 %>%
+  dplyr::rename(SYMBOL = gene)
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All <- left_join(x = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.ENTREZID_tbl, y = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2, by = "SYMBOL")
+
+#Filter UP and DOWN signficant genes
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All %>%
+  dplyr::select(ENTREZID, p_val_adj, avg_logFC) %>%
+  mutate(score = -log10(p_val_adj) * avg_logFC) %>%
+  filter(p_val_adj < 0.01)
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean %>%
+  filter(avg_logFC > 0)
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean %>%
+  filter(avg_logFC < 0)
+
+#generate gene-named LogFC vectors of significantly UP or DOWN regulated genes (UP = enriched in Cluster 2; DOWN = enriched in Cluster 1)
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_simple_UP           <- DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP$avg_logFC
+names(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_simple_UP)    <- DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP$ENTREZID
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_simple_DOWN           <- DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN$avg_logFC
+names(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_simple_DOWN)    <- DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN$ENTREZID
+
+
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP   <- ReactomePA::enrichPathway(gene = names(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_simple_UP),     pvalueCutoff = 0.01, readable=TRUE)
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN <- ReactomePA::enrichPathway(gene = names(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_simple_DOWN),   pvalueCutoff = 0.01, readable=TRUE)
+
+#Save Reactome Results
+saveRDS(object = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP,   file = paste0(de.data.path, "gsea/REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP.RDS"))
+saveRDS(object = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN, file = paste0(de.data.path, "gsea/REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN.RDS"))
+```
+
+#4b. REACTOME Pathway Plots
+```{r Plot REACTOME Pathways, echo=FALSE}
+#Visualize
+#generate a logFC vector for all genes with ENTREZID names for visualzing key REACTOME Pathways
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_avg_logFC        <- DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All$avg_logFC
+names(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_avg_logFC) <- DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All$ENTREZID
+
+#Saving
+
+
+# #set ggrepel() options
+# options(ggrepel.max.overlaps = Inf)
+# 
+# ###UP
+# #1. TollLikeReceptor3Cascade
+# TollLikeReceptor3Cascade.pathway.plot <- ReactomePA::viewPathway(pathName = "Toll Like Receptor 3 (TLR3) Cascade", organism = "human", readable = TRUE, foldChange = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_avg_logFC)
+# TollLikeReceptor3Cascade.pathway.plot <- TollLikeReceptor3Cascade.pathway.plot + 
+#                                          scale_colour_gradient2(name = "fold change", low = "#006837", mid = "#e6f598", high = "#d73027")
+# 
+# 
+# ggsave(paste0(astro.gsea.path, "TollLikeReceptor3Cascade.pathway.plot.png"), plot = TollLikeReceptor3Cascade.pathway.plot, device='png', width = 6, height=6, units='in', dpi=600)
+# 
+# 
+# 
+# #2. Toll-like Receptor Cascades
+# TollLikeReceptorCascades.pathway.plot <- ReactomePA::viewPathway(pathName = "Toll-like Receptor Cascades", organism = "human", readable = TRUE, foldChange = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_avg_logFC)
+# TollLikeReceptorCascades.pathway.plot <- TollLikeReceptorCascades.pathway.plot + 
+#                                          scale_colour_gradient2(name = "fold change", low = "#006837", mid = "#e6f598", high = "#d73027")
+# 
+# 
+# ggsave(paste0(astro.gsea.path, "TollLikeReceptorCascades.pathway.plot.png"), plot = TollLikeReceptorCascades.pathway.plot, device='png', width = 6, height=6, units='in', dpi=600)
+# 
+# 
+# #3. tRNA processing
+# tRNAProcessing.pathway.plot <- ReactomePA::viewPathway(pathName = "tRNA processing", organism = "human", readable = TRUE, foldChange = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_avg_logFC)
+# tRNAProcessing.pathway.plot <- tRNAProcessing.pathway.plot + 
+#                                          scale_colour_gradient2(name = "fold change", low = "#006837", mid = "#e6f598", high = "#d73027")
+# 
+# 
+# ggsave(paste0(astro.gsea.path, "tRNAProcessing.pathway.plot.png"), plot = tRNAProcessing.pathway.plot, device='png', width = 6, height=6, units='in', dpi=600)
+# 
+# 
+# 
+# TollLikeReceptor3Cascade.pathway.plot <- ReactomePA::viewPathway(pathName = "Toll Like Receptor 3 (TLR3) Cascade", organism = "human", readable = TRUE, foldChange = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP)
+# TollLikeReceptor3Cascade.pathway.plot <- TollLikeReceptor3Cascade.pathway.plot + 
+#                                          scale_colour_gradient2(name = "fold change", low = "#006837", mid = "#e6f598", high = "#d73027")
+# 
+# #DOWN
+# SignalingbyROBOreceptors.pathway.plot <- ReactomePA::viewPathway(pathName = "Signaling by ROBO receptors", organism = "human", readable = TRUE, foldChange = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_simple)
+# SignalingbyROBOreceptors.pathway.plot <- SignalingbyROBOreceptors.pathway.plot + 
+#                                          scale_colour_gradient2(name = "fold change", low = "#006837", mid = "#e6f598", high = "#d73027")
+# 
+
+```
+
+#4c. REACTOME Cluster/Tree Plots
+```{r Cluster and Plot REACTOME analyses based on similar gene sets using Tree plots, echo = FALSE}
+##################################
+#Tree Plot of Reactome Categories for UP and DOWN gene sets representing Cluster 2 and Cluster 0 respectively
+###UP
+#0. Define groups of Significant REACTOME categories using a p value cut-off
+clean_UP_Sig_pthresh_0.01 <- 
+  REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP@result %>%
+  filter(p.adjust < 10^-2)
+
+#1. Pairwise clustering of REACTOME categories
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_PW                 <- pairwise_termsim(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP, showCategory = nrow(clean_UP_Sig_pthresh_0.01))
+
+#2. Assign tree.plot and tree.plot_reference
+# _UP_tree.plot
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_Tree.pthresh_0.01.plot           <- treeplot(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_PW, showCategory = nrow(clean_UP_Sig_pthresh_0.01))
+#_UP_tree.plot_reference for plotting with labels and guides
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_Tree.pthresh_0.01.plot_reference <- treeplot(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_PW, showCategory = nrow(clean_UP_Sig_pthresh_0.01))
+
+
+
+#3. modify _UP_tree.plot aesthetics for plotting
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_Tree.pthresh_0.01.plot <- REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_Tree.pthresh_0.01.plot + 
+                                                                                                    geom_tree(size=1) +
+                                                                                                    geom_tiplab(alpha = 0, size = 0)+
+                                                                                                    scale_size_continuous(range = c(1,15))
+                                                                                
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_Tree.pthresh_0.01.plot$layers[[7]]$aes_params$size <- 0
+
+
+#4. Save tree.plot and tree.plot_reference
+ggsave(paste0(astro.gsea.path, "REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_Tree.pthresh_0.01.plot.png"), 
+       plot = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_Tree.pthresh_0.01.plot, 
+       device='png', width = 6, height=12, units='in', dpi=600)
+
+ggsave(paste0(astro.gsea.path, "REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_Tree.pthresh_0.01.plot_reference.png"), 
+       plot = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_Tree.pthresh_0.01.plot_reference, 
+       device='png', width = 16, height=12, units='in', dpi=600)
+
+
+
+
+
+#DOWN
+#0. Define groups of Significant REACTOME categories using a p value cut-off
+clean_DOWN_Sig_pthresh_0.01 <- 
+  REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN@result %>%
+  filter(p.adjust < 10^-2)
+
+clean_DOWN_Sig_pthresh_0.000001 <- 
+  REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN@result %>%
+  filter(p.adjust < 10^-6)
+                 
+#1. Pairwise clustering of REACTOME categories
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_pthresh_0.01.PW     <- pairwise_termsim(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN,  showCategory = nrow(clean_DOWN_Sig_pthresh_0.01))
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_pthresh_0.000001.PW <- pairwise_termsim(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN,  showCategory = nrow(clean_DOWN_Sig_pthresh_0.000001))
+
+
+#2. Assign tree.plot and tree.plot_reference
+# _DOWN_tree.plot
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.01.plot           <- treeplot(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_pthresh_0.01.PW, showCategory = nrow(clean_DOWN_Sig_pthresh_0.01))
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.01.plot_reference <- treeplot(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_pthresh_0.01.PW, showCategory = nrow(clean_DOWN_Sig_pthresh_0.01))
+
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.000001.plot           <- treeplot(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_pthresh_0.000001.PW, showCategory = nrow(clean_DOWN_Sig_pthresh_0.000001))
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.000001.plot_reference <- treeplot(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_pthresh_0.000001.PW, showCategory = nrow(clean_DOWN_Sig_pthresh_0.000001))
+
+
+#3. modify _DOWN_tree.plot aesthetics for plotting
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.01.plot <- REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.01.plot + 
+                                                                                                        geom_tree(size=2) +
+                                                                                                        geom_tiplab(alpha = 0, size = 0)+
+                                                                                                        scale_size_continuous(range = c(5,25))
+                                                                                
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.01.plot$layers[[7]]$aes_params$size <- 0
+
+
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.000001.plot <- REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.000001.plot + 
+                                                                                                        geom_tree(size=2) +
+                                                                                                        geom_tiplab(alpha = 0, size = 0)+
+                                                                                                        scale_size_continuous(range = c(5,25))
+                                                                                
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.000001.plot$layers[[7]]$aes_params$size <- 0
+
+
+
+ggsave(paste0(astro.gsea.path, "REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.01.plot.png"), 
+       plot = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.01.plot, 
+       device='png', width = 10, height=30, units='in', dpi=600)
+ggsave(paste0(astro.gsea.path, "REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.01.plot_reference.png"), 
+       plot = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.01.plot_reference, 
+       device='png', width = 10, height=30, units='in', dpi=600)
+
+ggsave(paste0(astro.gsea.path, "REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.000001.plot.png"), 
+       plot = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.000001.plot, 
+       device='png', width = 10, height=50, units='in', dpi=600, limitsize = FALSE)
+ggsave(paste0(astro.gsea.path, "REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.000001.plot_reference.png"), 
+       plot = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_Tree.pthresh_0.000001.plot_reference, 
+       device='png', width = 10, height=50, units='in', dpi=600, limitsize = FALSE)
+
+##################################
+```
+
+#4d. REACTOME Heatplots
+```{r gene-centric heatplots for specific REACTOME categories, echo=FALSE}
+#NOT CURRENTLY USED IN THE MANUSCRIPT 24/9/5
+#Heatplots for Genes associated with Reactome categores in the UP and DOWN gene sets
+#UP
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP.Full.heatplot   <- heatplot(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP,   foldChange = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_avg_logFC, showCategory=50)
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP.Full.heatplot   <- REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP.Full.heatplot + scale_fill_gradient2(name = "fold change", low = "#006837", mid = "#e6f598", high = "#d73027")
+
+ggsave(paste0(astro.gsea.path, "REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP.Full.heatplot.png"), plot = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP.Full.heatplot, device='png', width = 20, height=15, units='in', dpi=600)
+
+#DOWN
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN.Full.heatplot <- heatplot(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN, foldChange = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_avg_logFC, showCategory=50)
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN.Full.heatplot <- REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN.Full.heatplot + scale_fill_gradient2(name = "fold change", low = "#006837", mid = "#e6f598", high = "#d73027")
+
+ggsave(paste0(astro.gsea.path, "REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN.Full.heatplot.png"), plot = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN.Full.heatplot, device='png', width = 60, height=15, units='in', dpi=600, limitsize = FALSE)
+
+
+#subset the full REACTOME results for a smaller heat map with representative genes
+#UP
+KeyDescriptions_UP <- c("Toll-like Receptor Cascades", "tRNA processing",  "rRNA processing in the mitochondrion", "rRNA modification in the nucleus and cytosol", "Transcriptional Regulation by TP53", "Nucleotide-binding domain, leucine rich repeat containing receptor (NLR) signaling pathways")
+
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_DescriptionSubset <- REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP
+
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_DescriptionSubset@result <- REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP@result[REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP@result$Description %in% c(KeyDescriptions_UP),]
+
+
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_DescriptionSubset.heatplot   <- heatplot(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_DescriptionSubset,   foldChange = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_avg_logFC, showCategory=50)
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_DescriptionSubset.heatplot   <- REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_DescriptionSubset.heatplot + 
+                                                                                                            scale_fill_gradient2(name = "fold change", low = "#006837", mid = "#e6f598", high = "#d73027") +
+                                                                                                            coord_flip()+
+                                                                                                            scale_x_discrete(limits=rev)+
+                                                                                                            #scale_x_reverse()+
+                                                                                                            theme_dark()+
+                                                                                                            guides(fill = "none")+
+                                                                                                              theme(axis.text.x = element_text(face = "italic", size = 9, angle = 90, family = "Arial"),
+                                                                                                                    axis.text.y = element_text(face = "italic", size = 8.5, family = "Arial"))
+
+ggsave(paste0(astro.gsea.path, "REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_DescriptionSubset.heatplot.png"), plot = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_UP_DescriptionSubset.heatplot, device='png', width = 2, height=16, units='in', dpi=600)
+
+
+#DOWN
+KeyDescriptions_DOWN <- c("SARS-CoV Infections", "Viral mRNA Translation", "HIV Infection", "Translation", "Signaling by ROBO receptors", "The citric acid (TCA) cycle and respiratory electron transport", "Metabolism of amino acids and derivatives", "Metabolism of carbohydrates")
+
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_DescriptionSubset <- REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN
+
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_DescriptionSubset@result <- REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN@result[REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN@result$Description %in% c(KeyDescriptions_DOWN),]
+
+
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_DescriptionSubset.heatplot   <- heatplot(REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_DescriptionSubset,   foldChange = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_avg_logFC, showCategory=50)
+REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_DescriptionSubset.heatplot   <- REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_DescriptionSubset.heatplot + 
+                                                                                                            scale_fill_gradient2(name = "fold change", low = "#006837", mid = "#e6f598", high = "#d73027") +
+                                                                                                            coord_flip()+
+                                                                                                            scale_x_discrete(limits=rev)+
+                                                                                                            #scale_x_reverse()+
+                                                                                                            theme_dark()+
+                                                                                                            guides(fill = "none")+
+                                                                                                              theme(axis.text.x = element_text(face = "italic", size = 10, angle = 90, family = "Arial"),
+                                                                                                                    axis.text.y = element_text(face = "italic", size = 10, family = "Arial"))
+
+ggsave(paste0(astro.gsea.path, "REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_DescriptionSubset.heatplot.png"), plot = REACTOME.Pathway.DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_clean_DOWN_DescriptionSubset.heatplot, device='png', width = 3, height=80, units='in', dpi=600, limitsize = FALSE)
+
+
+```
+
+#4e. Custom REACTOME Heatplots for whole Gene Categories
+```{r custom heatplots, echo = FALSE}
+
+#0a. Load REACTOME Gene Lists for Key Categories
+RHSA168164_TLR                 <- read_tsv(REACTOME_RHSA168164_TLR.path)
+RHSA72766_Translation          <- read_tsv(REACTOME_RHSA72766_Translation.path)
+RHSA3700989_TP53               <- read_tsv(REACTOME_RHSA3700989_TP53.path)
+RHSA72306_tRNA                 <- read_tsv(REACTOME_RHSA72306_tRNA.path)
+RHSA611105_REC                 <- read_tsv(REACTOME_RHSA611105_REC.path)
+
+#0b.Extract Gene Names
+RHSA168164_TLR_Genes        <- sapply(strsplit(RHSA168164_TLR$MoleculeName,split=" "),       tail,1)
+RHSA72766_Translation_Genes <- sapply(strsplit(RHSA72766_Translation$MoleculeName,split=" "),tail,1)
+RHSA3700989_TP53_Genes      <- sapply(strsplit(RHSA3700989_TP53$MoleculeName,split=" "),     tail,1)
+RHSA72306_tRNA_Genes        <- sapply(strsplit(RHSA72306_tRNA$MoleculeName,split=" "),       tail,1)
+RHSA611105_REC_Genes        <- sapply(strsplit(RHSA611105_REC$MoleculeName,split=" "),       tail,1)
+####
+
+
+#1. Toll Like Receptor (9RHSA168164)
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA168164_TLR_GeneSet <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All %>%
+  filter(SYMBOL %in% RHSA168164_TLR_Genes)  %>%
+  filter(!is.na(avg_logFC)) %>%
+  dplyr::select(SYMBOL, avg_logFC, p_val_adj) %>%
+  arrange(desc(avg_logFC)) %>%
+  mutate(avg_logFC_tile = ntile(avg_logFC, 4)) %>%
+  mutate(IsSig = case_when(p_val_adj < 0.01 ~ "yes", TRUE ~ "no")) %>%
+  mutate(IsSig = factor(IsSig, levels = c("yes", "no"))) %>%
+  mutate(SYMBOL = factor(SYMBOL, 
+                     ordered=TRUE, 
+                     levels=unique(.[order(.$avg_logFC),"SYMBOL"][[1]])))
+
+HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA168164_TLR_Genes <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA168164_TLR_GeneSet, aes(y = SYMBOL, x = 1, fill = avg_logFC))+
+    geom_tile(color = "black")+
+    geom_point(aes(size = IsSig, alpha = IsSig))+
+    coord_equal()+
+    scale_fill_gradient2(limits = c(-3,3), low = muted("blue"), mid = "white", high = muted("red"), midpoint = 0, space = "Lab", na.value = muted("red"))+
+    scale_size_discrete(range = c(1, 4))+
+    scale_alpha_discrete(range = c(1, 0))+
+    theme(axis.text.y = element_text(family = "Arial", size = 12, face = "italic"))
+
+ggsave(paste0(astro.gsea.path, "HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA168164_TLR_Genes.png"), 
+       plot = HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA168164_TLR_Genes, 
+       device='png', width = 3, height=16, units='in', dpi=600, limitsize = FALSE)
+####
+
+####
+#2. Translation (RHSA72766)
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All %>%
+  filter(SYMBOL %in% RHSA72766_Translation_Genes)  %>%
+  filter(!is.na(avg_logFC)) %>%
+  dplyr::select(SYMBOL, avg_logFC, p_val_adj) %>%
+  arrange(desc(avg_logFC)) %>%
+  mutate(avg_logFC_tile = ntile(avg_logFC, 4)) %>%
+  mutate(IsSig = case_when(p_val_adj < 0.01 ~ "yes", TRUE ~ "no")) %>%
+  mutate(IsSig = factor(IsSig, levels = c("yes", "no"))) %>%
+  mutate(SYMBOL = factor(SYMBOL, 
+                     ordered=TRUE, 
+                     levels=unique(.[order(.$avg_logFC),"SYMBOL"][[1]])))
+
+HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA72766_Translation_Genes <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet, aes(y = SYMBOL, SYMBOL, x = 1, fill = avg_logFC))+
+    geom_tile(color = "black")+
+    geom_point(aes(size = IsSig, alpha = IsSig))+
+    coord_equal()+
+    scale_fill_gradient2(limits = c(-3,3), low = muted("blue"), mid = "white", high = muted("red"), midpoint = 0, space = "Lab", na.value = muted("red"))+
+    scale_size_discrete(range = c(1, 4))+
+    scale_alpha_discrete(range = c(1, 0))+
+    theme(axis.text.y = element_text(family = "Arial", size = 12, face = "italic"))
+
+ggsave(paste0(astro.gsea.path, "HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA72766_Translation_Genes.png"), 
+       plot = HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA72766_Translation_Genes, 
+       device='png', width = 3, height=40, units='in', dpi=600, limitsize = FALSE)
+####
+
+####
+#3. TP53 (RHSA3700989)
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA3700989_TP53_GeneSet <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All %>%
+  filter(SYMBOL %in% RHSA3700989_TP53_Genes)  %>%
+  filter(!is.na(avg_logFC)) %>%
+  dplyr::select(SYMBOL, avg_logFC, p_val_adj) %>%
+  arrange(desc(avg_logFC)) %>%
+  mutate(avg_logFC_tile = ntile(avg_logFC, 4)) %>%
+  mutate(IsSig = case_when(p_val_adj < 0.01 ~ "yes", TRUE ~ "no")) %>%
+  mutate(IsSig = factor(IsSig, levels = c("yes", "no"))) %>%
+  mutate(SYMBOL = factor(SYMBOL, 
+                     ordered=TRUE, 
+                     levels=unique(.[order(.$avg_logFC),"SYMBOL"][[1]])))
+
+HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA3700989_TP53_Genes <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA3700989_TP53_GeneSet, aes(y = SYMBOL, SYMBOL, x = 1, fill = avg_logFC))+
+    geom_tile(color = "black")+
+    geom_point(aes(size = IsSig, alpha = IsSig))+
+    coord_equal()+
+    scale_fill_gradient2(limits = c(-3,3), low = muted("blue"), mid = "white", high = muted("red"), midpoint = 0, space = "Lab", na.value = muted("red"))+
+    scale_size_discrete(range = c(1, 4))+
+    scale_alpha_discrete(range = c(1, 0))+
+    theme(axis.text.y = element_text(family = "Arial", size = 18, face = "italic"))
+
+ggsave(paste0(astro.gsea.path, "HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA3700989_TP53_Genes.png"), 
+       plot = HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA3700989_TP53_Genes, 
+       device='png', width = 3, height=40, units='in', dpi=600, limitsize = FALSE)
+####
+
+####
+#5. tRNA (RHSA72306)
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72306_tRNA_GeneSet <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All %>%
+  filter(SYMBOL %in% RHSA72306_tRNA_Genes)  %>%
+  filter(!is.na(avg_logFC)) %>%
+  dplyr::select(SYMBOL, avg_logFC, p_val_adj) %>%
+  arrange(desc(avg_logFC)) %>%
+  mutate(avg_logFC_tile = ntile(avg_logFC, 4)) %>%
+  mutate(IsSig = case_when(p_val_adj < 0.01 ~ "yes", TRUE ~ "no")) %>%
+  mutate(IsSig = factor(IsSig, levels = c("yes", "no"))) %>%
+  mutate(SYMBOL = factor(SYMBOL, 
+                     ordered=TRUE, 
+                     levels=unique(.[order(.$avg_logFC),"SYMBOL"][[1]])))
+
+HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA72306_tRNA_Genes <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72306_tRNA_GeneSet, aes(y = SYMBOL, SYMBOL, x = 1, fill = avg_logFC))+
+    geom_tile(color = "black")+
+    geom_point(aes(size = IsSig, alpha = IsSig))+
+    coord_equal()+
+    scale_fill_gradient2(limits = c(-3,3), low = muted("blue"), mid = "white", high = muted("red"), midpoint = 0, space = "Lab", na.value = muted("red"))+
+    scale_size_discrete(range = c(1, 4))+
+    scale_alpha_discrete(range = c(1, 0))+
+    theme(axis.text.y = element_text(family = "Arial", size = 18, face = "italic"))
+
+ggsave(paste0(astro.gsea.path, "HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA72306_tRNA_Genes.png"), 
+       plot = HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA72306_tRNA_Genes, 
+       device='png', width = 3, height=40, units='in', dpi=600, limitsize = FALSE)
+####
+
+
+####
+#6. REC (RHSA611105)
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA611105_REC_GeneSet <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All %>%
+  filter(SYMBOL %in% RHSA611105_REC_Genes)  %>%
+  filter(!is.na(avg_logFC)) %>%
+  dplyr::select(SYMBOL, avg_logFC, p_val_adj) %>%
+  arrange(desc(avg_logFC)) %>%
+  mutate(avg_logFC_tile = ntile(avg_logFC, 4)) %>%
+  mutate(IsSig = case_when(p_val_adj < 0.01 ~ "yes", TRUE ~ "no")) %>%
+  mutate(IsSig = factor(IsSig, levels = c("yes", "no"))) %>%
+  mutate(SYMBOL = factor(SYMBOL, 
+                     ordered=TRUE, 
+                     levels=unique(.[order(.$avg_logFC),"SYMBOL"][[1]])))
+
+HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA611105_REC_Genes <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA611105_REC_GeneSet, aes(y = SYMBOL, SYMBOL, x = 1, fill = avg_logFC))+
+    geom_tile(color = "black")+
+    geom_point(aes(size = IsSig, alpha = IsSig))+
+    coord_equal()+
+    scale_fill_gradient2(limits = c(-3,3), low = muted("blue"), mid = "white", high = muted("red"), midpoint = 0, space = "Lab", na.value = muted("red"))+
+    scale_size_discrete(range = c(1, 4))+
+    scale_alpha_discrete(range = c(1, 0))+
+    theme(axis.text.y = element_text(family = "Arial", size = 18, face = "italic"))
+
+ggsave(paste0(astro.gsea.path, "HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA611105_REC_Genes.png"), 
+       plot = HeatMapLog2FC_AstroLow_Cluster0.vs.AstroHigh_Cluster2_RHSA611105_REC_Genes, 
+       device='png', width = 3, height=40, units='in', dpi=600, limitsize = FALSE)
+####
+
+```
+
+```{r preprocess DE.tha05.vs.NI.CellType for comparison to , echo=FALSE}
+
+#filter to just Astrocytes
+DE.tha05.vs.NI.CellType.Astro <-
+  DE.tha05.vs.NI.CellType %>%
+  filter(cell_type == "Astrocyte")
+
+
+```
+
+#REACTOME Category inspired Gene Set Analysis
+```{r focused analysis on 3 gene sets: ribosome, tRNA, cox_nduf, echo = F}
+
+#Ribosome
+mito_ribo    <- grep(pattern = "^MRP*", x = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet$SYMBOL, perl = T, value = TRUE)
+nuclear_ribo <- unique(x = grep(pattern = "^RPS*", x = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet$SYMBOL, perl = T, value = TRUE), y = grep(pattern = "^RPL*", x = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet$SYMBOL, perl = T, value = TRUE))
+
+#tRNA
+mito_tRNA    <- c("MARS2", "EARS2", "FARS2", "HARS2", "PARS2", "SARS2", "LARS2", "YARS2", "VARS2", "WARS2", "AARS2", "NARS2", "RARS2", "CARS2", "TARS2", "DARS2", "IARS2")
+nuclear_tRNA <- c("AARS", "CARS", "DARS", "EPRS", "FARSA", "FARSB", "IARS",  "LARS", "MARS", "NARS", "QARS", "RARS", "SARS", "TARS", "VARS", "WARS", "YARS")
+both_tRNA    <- c("GARS", "KARS", "HARS")
+
+#Electron Transport
+cox     <- grep(pattern = "^COX", x = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All$SYMBOL, perl = T, value = TRUE)
+nduf    <- grep(pattern = "^NDUF", x = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All$SYMBOL, perl = T, value = TRUE)
+
+#DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_Ribo <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta1 %>%
+    mutate(RiboGeneCategory = case_when(gene %in% mito_ribo ~ "Mitochondria", gene %in% nuclear_ribo ~ "Cytoplasmic", TRUE ~ NA)) %>%
+    filter(!is.na(RiboGeneCategory))%>%
+    mutate(IsSig = case_when(p_val_adj < 0.01 ~ "yes", TRUE ~ "no")) %>%
+    mutate(IsSig = factor(IsSig, levels = c("yes", "no")))
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_tRNA <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta1 %>%
+    mutate(tRNAGeneCategory = case_when(gene %in% mito_tRNA ~ "Mitochondria", gene %in% nuclear_tRNA ~ "Cytoplasmic", gene %in% both_tRNA ~ "Both", TRUE ~ NA)) %>%
+    filter(!is.na(tRNAGeneCategory)) %>%
+    mutate(IsSig = case_when(p_val_adj < 0.01 ~ "yes", TRUE ~ "no")) %>%
+    mutate(IsSig = factor(IsSig, levels = c("yes", "no")))
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_COX_NDUF_GeneSet_REC <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta1 %>%
+    mutate(COX_NDUF_GeneCategory = case_when(gene %in% cox ~ "COX", gene %in% nduf ~ "NDUF", TRUE ~ NA)) %>%
+    filter(!is.na(COX_NDUF_GeneCategory)) %>%
+    mutate(IsSig = case_when(p_val_adj < 0.01 ~ "yes", TRUE ~ "no")) %>%
+    mutate(IsSig = factor(IsSig, levels = c("yes", "no"))) %>%
+    filter(!grepl("-AS",gene)) %>%
+    filter(!grepl("-DT",gene))
+
+###Plotting
+#######################DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2###################################
+#dot parameters
+dot_size = 5
+dot_stroke = 1.2
+dot_alpha = 1
+
+
+#Ribosomal Genes
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_Ribo.jitter_reference.plot <- 
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_Ribo, aes(x=RiboGeneCategory, y=avg_logFC, color = IsSig, fill = RiboGeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha)+               #geom_point(position = position_jitter(seed = 42))
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("red", "black"))+
+    scale_fill_manual(values = c("#ccece6", "#66c2a4"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()
+
+ggsave(paste0(astro.gsea.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_Ribo.jitter_reference.plot.png"), 
+       plot = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_Ribo.jitter_reference.plot, 
+       device='png', width = 5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_Ribo.jitter.plot <- 
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_Ribo, aes(x=RiboGeneCategory, y=avg_logFC, color = IsSig, fill = RiboGeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha, stroke = dot_stroke)+
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("red", "black"))+
+    scale_fill_manual(values = c("#ccece6", "#66c2a4"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()+
+    guides(color = "none", fill = "none")
+
+ggsave(paste0(astro.gsea.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_Ribo.jitter.plot.png"), 
+       plot = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_Ribo.jitter.plot, 
+       device='png', width = 3.5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+#tRNAs Genes
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_tRNA.jitter_reference.plot <- 
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_tRNA, aes(x=tRNAGeneCategory, y=avg_logFC, color = IsSig, fill = tRNAGeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha)+
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("red", "black"))+
+    scale_fill_manual(values = c("#ffffe5", "#fff7bc", "#fee391"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()
+
+ggsave(paste0(astro.gsea.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_tRNA.jitter_reference.plot.png"), 
+       plot = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_tRNA.jitter_reference.plot, 
+       device='png', width = 5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_tRNA.jitter.plot <- 
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_tRNA, aes(x=tRNAGeneCategory, y=avg_logFC, color = IsSig, fill = tRNAGeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha)+
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("red", "black"))+
+    scale_fill_manual(values = c("#ffffe5", "#fff7bc", "#fee391"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()+
+    guides(color = "none", fill = "none")
+
+ggsave(paste0(astro.gsea.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_tRNA.jitter.plot.png"), 
+       plot = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_RHSA72766_Translation_GeneSet_tRNA.jitter.plot, 
+       device='png', width = 3.5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+
+#COX_NDUF Genes
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_COX_NDUF_GeneSet_REC.jitter_reference.plot <- 
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_COX_NDUF_GeneSet_REC, aes(x=COX_NDUF_GeneCategory, y=avg_logFC, color = IsSig, fill = COX_NDUF_GeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha)+
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("red", "black"))+
+    scale_fill_manual(values = c("#deebf7", "#9ecae1"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()
+
+ggsave(paste0(astro.gsea.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_COX_NDUF_GeneSet_REC.jitter_reference.plot.png"), 
+       plot = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_COX_NDUF_GeneSet_REC.jitter_reference.plot, 
+       device='png', width = 5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_COX_NDUF_GeneSet_REC.jitter.plot <- 
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_COX_NDUF_GeneSet_REC, aes(x=COX_NDUF_GeneCategory, y=avg_logFC, color = IsSig, fill = COX_NDUF_GeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha)+
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("red", "black"))+
+    scale_fill_manual(values = c("#deebf7", "#9ecae1"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()+
+    guides(color = "none", fill = "none")
+
+ggsave(paste0(astro.gsea.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_COX_NDUF_GeneSet_REC.jitter.plot.png"), 
+       plot = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_All_COX_NDUF_GeneSet_REC.jitter.plot, 
+       device='png', width = 3.5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+##################################################################################
+
+#######################DE.tha05.vs.NI.CellType.Astro##############################
+
+#DE.tha05.vs.NI.CellType.Astro
+DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_Ribo <-
+  DE.tha05.vs.NI.CellType.Astro %>%
+    mutate(RiboGeneCategory = case_when(gene %in% mito_ribo ~ "Mitochondria", gene %in% nuclear_ribo ~ "Cytoplasmic", TRUE ~ NA)) %>%
+    filter(!is.na(RiboGeneCategory))%>%
+    mutate(IsSig = case_when(p_val_adj < 0.01 ~ "yes", TRUE ~ "no")) %>%
+    mutate(IsSig = factor(IsSig, levels = c("yes", "no")))
+
+DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_tRNA <-
+  DE.tha05.vs.NI.CellType.Astro %>%
+    mutate(tRNAGeneCategory = case_when(gene %in% mito_tRNA ~ "Mitochondria", gene %in% nuclear_tRNA ~ "Cytoplasmic", gene %in% both_tRNA ~ "Both", TRUE ~ NA)) %>%
+    filter(!is.na(tRNAGeneCategory)) %>%
+    mutate(IsSig = case_when(p_val_adj < 0.01 ~ "yes", TRUE ~ "no")) %>%
+    mutate(IsSig = factor(IsSig, levels = c("yes", "no")))
+
+DE.tha05.vs.NI.CellType.Astro_COX_NDUF_GeneSet_REC <-
+  DE.tha05.vs.NI.CellType.Astro %>%
+    mutate(COX_NDUF_GeneCategory = case_when(gene %in% cox ~ "COX", gene %in% nduf ~ "NDUF", TRUE ~ NA)) %>%
+    filter(!is.na(COX_NDUF_GeneCategory)) %>%
+    mutate(IsSig = case_when(p_val_adj < 0.01 ~ "yes", TRUE ~ "no")) %>%
+    mutate(IsSig = factor(IsSig, levels = c("yes", "no"))) %>%
+    filter(!grepl("-AS",gene)) %>%
+    filter(!grepl("-DT",gene))
+
+
+
+
+
+###Plotting
+#Ribosomal Genes
+
+DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_Ribo.jitter_reference.plot <- 
+  ggplot(DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_Ribo, aes(x=RiboGeneCategory, y=avg_logFC, color = IsSig, fill = RiboGeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha)+               #geom_point(position = position_jitter(seed = 42))
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("red", "black"))+
+    scale_fill_manual(values = c("#ccece6", "#66c2a4"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()
+
+ggsave(paste0(astro.gsea.path, "DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_Ribo.jitter_reference.plot.png"), 
+       plot = DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_Ribo.jitter_reference.plot, 
+       device='png', width = 5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+
+DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_Ribo.jitter.plot <- 
+  ggplot(DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_Ribo, aes(x=RiboGeneCategory, y=avg_logFC, color = IsSig, fill = RiboGeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha)+
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("red", "black"))+
+    scale_fill_manual(values = c("#ccece6", "#66c2a4"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()+
+    guides(color = "none", fill = "none")
+
+ggsave(paste0(astro.gsea.path, "DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_Ribo.jitter.plot.png"), 
+       plot = DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_Ribo.jitter.plot, 
+       device='png', width = 3.5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+#tRNAs Genes
+DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_tRNA.jitter_reference.plot <- 
+  ggplot(DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_tRNA, aes(x=tRNAGeneCategory, y=avg_logFC, color = IsSig, fill = tRNAGeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha)+
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("red", "black"))+
+    scale_fill_manual(values = c("#ffffe5", "#fff7bc", "#fee391"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()
+
+ggsave(paste0(astro.gsea.path, "DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_tRNA.jitter_reference.plot.png"), 
+       plot = DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_tRNA.jitter_reference.plot, 
+       device='png', width = 5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+
+DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_tRNA.jitter.plot <- 
+  ggplot(DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_tRNA, aes(x=tRNAGeneCategory, y=avg_logFC, color = IsSig, fill = tRNAGeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha)+
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("black", "red"))+
+    scale_fill_manual(values = c("#ffffe5", "#fff7bc", "#fee391"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()+
+    guides(color = "none", fill = "none")
+
+ggsave(paste0(astro.gsea.path, "DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_tRNA.jitter.plot.png"), 
+       plot = DE.tha05.vs.NI.CellType.Astro_RHSA72766_Translation_GeneSet_tRNA.jitter.plot, 
+       device='png', width = 3.5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+
+#COX_NDUF Genes
+DE.tha05.vs.NI.CellType.Astro_COX_NDUF_GeneSet_REC.jitter_reference.plot <- 
+  ggplot(DE.tha05.vs.NI.CellType.Astro_COX_NDUF_GeneSet_REC, aes(x=COX_NDUF_GeneCategory, y=avg_logFC, color = IsSig, fill = COX_NDUF_GeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha)+
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("black", "red"))+
+    scale_fill_manual(values = c("#deebf7", "#9ecae1"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()
+
+ggsave(paste0(astro.gsea.path, "DE.tha05.vs.NI.CellType.Astro_COX_NDUF_GeneSet_REC.jitter_reference.plot.png"), 
+       plot = DE.tha05.vs.NI.CellType.Astro_COX_NDUF_GeneSet_REC.jitter_reference.plot, 
+       device='png', width = 5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+DE.tha05.vs.NI.CellType.Astro_COX_NDUF_GeneSet_REC.jitter.plot <- 
+  ggplot(DE.tha05.vs.NI.CellType.Astro_COX_NDUF_GeneSet_REC, aes(x=COX_NDUF_GeneCategory, y=avg_logFC, color = IsSig, fill = COX_NDUF_GeneCategory))+
+    geom_violin(color = "black", fill = "#f0f0f0")+
+    geom_jitter(shape = 21, size = dot_size, stroke = dot_stroke, alpha = dot_alpha)+
+    scale_y_continuous(limits = c(-2,2))+
+    scale_color_manual(values = c("black", "red"))+
+    scale_fill_manual(values = c("#deebf7", "#9ecae1"))+
+    geom_hline(yintercept = 0, linewidth = 1, linetype = "dotted")+
+    theme_bw()+
+    guides(color = "none", fill = "none")
+
+ggsave(paste0(astro.gsea.path, "DE.tha05.vs.NI.CellType.Astro_COX_NDUF_GeneSet_REC.jitter.plot.png"), 
+       plot = DE.tha05.vs.NI.CellType.Astro_COX_NDUF_GeneSet_REC.jitter.plot, 
+       device='png', width = 3.5, height=5, units='in', dpi=600, limitsize = FALSE)
+
+
+
+
+
+##################################################################################
+```

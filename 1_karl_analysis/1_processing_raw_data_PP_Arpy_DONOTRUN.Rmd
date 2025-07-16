@@ -1,0 +1,35 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: inline
+---
+
+```{r, message=FALSE}
+library(tidyverse)
+
+source("~/Dropbox (OHSU)/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/Dropbox (OHSU)/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/Dropbox (OHSU)/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+```{r concatenate DGES, echo=FALSE}
+
+#define paths
+rawfilepath <- 'Data/rawunzips/'
+outputpath  <- 'Data/dge_robjs/'
+
+#run function
+dges <- get_dges(rawfilepath)
+
+# optionally save each separate DGE as an RDS
+individual_dge_paths <- paste0(outputpath,'dges_by_experiment/',list.files(path=rawfilepath),'_dge.RDS')
+for (i in seq_along(individual_dge_paths)){
+  write_rds(dges[[i]], individual_dge_paths[[i]])
+  rm(i)
+}
+
+# # or save the combo dge
+comboDGE <- do.call('cbind', dges)
+write_rds(comboDGE, file=paste0(outputpath, 'all_cells_dge.RDS'))
+```
+

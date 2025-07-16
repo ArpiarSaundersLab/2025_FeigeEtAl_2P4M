@@ -1,0 +1,137 @@
+---
+title: "Filtered Microglia Differential Gene Expression Comparison"
+author: "Greg"
+date: '2024-12-10'
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(Seurat)
+library(Libra)
+```
+
+#0. Load Primary Microglia Object
+```{r}
+ mg.seurat <- read_rds('/Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Data/seurat_obj/mg_seurat.RDS')
+
+ tha.summary <- read_rds('/Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/summaries/tha.celltype.infections.RDS')
+``` 
+
+----------------------
+Tha 05 vs NI MG
+----------------------
+```{r}
+
+restricted.summary <- filter(tha.summary, seurat.include == 'yes', 
+                                          (Experiment == 'NI_0') | (Experiment == 'Tha_05'),
+                                          CellType == 'Microglia')
+
+# Subset microglia seurat object to match restricted summary for microglia
+restrict.mg.seurat <- subset(mg.seurat, cells = restricted.summary$CBC)
+
+restrict.mg.seurat@meta.data$Experiment <- factor(restrict.mg.seurat@meta.data$Experiment, 
+                                         levels = c("Tha_5", "2P4M_05", "Tha_05", "NI_0"))
+
+de  <- Libra::run_de(restrict.mg.seurat, 
+                 meta = restrict.mg.seurat@meta.data,
+                 replicate_col = 'Tube',
+                 cell_type_col = 'CoarseCellType',
+                 label_col = 'Experiment',
+                 de_family = 'pseudobulk',
+                 de_method = 'DESeq2',
+                 de_type = 'LRT')
+
+plot <- ggplot(data = de, aes(x = avg_logFC, y = -log10(p_val_adj))) + 
+        geom_point(color = 'black', size = 2.5) + 
+        xlim(-7, 7) +  # Set x-axis limits
+        ylim(-5, 87)  
+
+```
+
+Export DEGs into RDS and CSV Files
+```{r}
+# Make sure to check object name for correct file naming
+write_rds(de, file = '//Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Data/de/mg_ni_vs_tha05_de.RDS')
+
+write.csv(de, file = "//Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Data/de/mg_ni_vs_tha05_de.csv", row.names = FALSE, na = "", quote = TRUE)
+```
+
+----------------------
+Tha 5 vs NI MG
+----------------------
+```{r}
+
+restricted.summary <- filter(tha.summary, seurat.include == 'yes', 
+                                          (Experiment == 'NI_0') | (Experiment == 'Tha_5'),
+                                          CellType == 'Microglia')
+
+# Subset microglia seurat object to match restricted summary for microglia
+restrict.mg.seurat <- subset(mg.seurat, cells = restricted.summary$CBC)
+
+restrict.mg.seurat@meta.data$Experiment <- factor(restrict.mg.seurat@meta.data$Experiment, 
+                                         levels = c("Tha_5", "2P4M_05", "Tha_05", "NI_0"))
+
+de  <- Libra::run_de(restrict.mg.seurat, 
+                 meta = restrict.mg.seurat@meta.data,
+                 replicate_col = 'Tube',
+                 cell_type_col = 'CoarseCellType',
+                 label_col = 'Experiment',
+                 de_family = 'pseudobulk',
+                 de_method = 'DESeq2',
+                 de_type = 'LRT')
+
+plot <- ggplot(data = de, aes(x = avg_logFC, y = -log10(p_val_adj))) + 
+        geom_point(color = 'black', size = 2.5) + 
+        xlim(-7, 7) +  # Set x-axis limits
+        ylim(-5, 87)  
+
+```
+
+Export DEGs into RDS and CSV Files
+```{r}
+# Make sure to check object name for correct file naming
+write_rds(de, file = '//Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Data/de/mg_ni_vs_tha5_de.RDS')
+
+write.csv(de, file = "//Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Data/de/mg_ni_vs_tha5_de.csv", row.names = FALSE, na = "", quote = TRUE)
+
+```
+
+----------------------
+Tha 2P4M 05 vs NI MG
+----------------------
+```{r}
+
+restricted.summary <- filter(tha.summary, seurat.include == 'yes', 
+                                          (Experiment == 'NI_0') | (Experiment == '2P4M_05'),
+                                          CellType == 'Microglia')
+
+# Subset microglia seurat object to match restricted summary for microglia
+restrict.mg.seurat <- subset(mg.seurat, cells = restricted.summary$CBC)
+
+restrict.mg.seurat@meta.data$Experiment <- factor(restrict.mg.seurat@meta.data$Experiment, 
+                                         levels = c("Tha_5", "2P4M_05", "Tha_05", "NI_0"))
+
+de  <- Libra::run_de(restrict.mg.seurat, 
+                 meta = restrict.mg.seurat@meta.data,
+                 replicate_col = 'Tube',
+                 cell_type_col = 'CoarseCellType',
+                 label_col = 'Experiment',
+                 de_family = 'pseudobulk',
+                 de_method = 'DESeq2',
+                 de_type = 'LRT')
+
+plot <- ggplot(data = de, aes(x = avg_logFC, y = -log10(p_val_adj))) + 
+        geom_point(color = 'black', size = 2.5) + 
+        xlim(-7, 7) +  # Set x-axis limits
+        ylim(-5, 87)  
+
+```
+
+Export DEGs into RDS and CSV Files
+```{r}
+# Make sure to check object name for correct file naming
+write_rds(de, file = '//Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Data/de/mg_ni_vs_2p4m05_de.RDS')
+
+write.csv(de, file = "//Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Data/de/mg_ni_vs_2p4m05_de.csv", row.names = FALSE, na = "", quote = TRUE)
+```

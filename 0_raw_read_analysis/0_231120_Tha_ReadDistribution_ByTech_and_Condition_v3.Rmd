@@ -1,0 +1,139 @@
+---
+title: "Comparing Read Distributions along the Tha genome by Technology and Condition"
+author: "Arpy"
+date: '2023-11-20'
+output: html_document
+---
+
+### Setup
+
+```{r setup-libraries, echo=FALSE, cache=FALSE}
+options(width = 300)
+
+# libraries
+library(ggplot2)
+library(tidyverse)
+library(readxl)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+
+```
+
+
+###Load
+```{r load data, echo=F, cache=F}
+
+#build paths
+sc_Tha.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/0_raw_read_analysis/input_data/sc_Tha_coverage_bulkset_T_40_OffsetcompleteMerge.csv"
+
+#load
+sc_Tha      <- read.csv(sc_Tha.path)
+
+#make tibble
+sc_Tha_tbl <- as_tibble(sc_Tha)
+
+
+```
+
+### Goal
+
+XXXX
+
+
+
+### Pre-processing & Data Manipulations
+
+```{r adding key columns using tbl, echo=F}
+
+#1. Add key columns
+sc_Tha_tbl2 <-
+  sc_Tha_tbl %>%
+  group_by(name) %>%
+  mutate(cov_peaknorm = cov / max(cov)) %>%
+  mutate(infection_status = case_when(grepl("uninfected", name) ~ "uninfected",
+                                      TRUE ~ "infected")) %>%
+    mutate(cell_type = case_when(grepl("neurons", name) ~ "neurons",
+                                 grepl("bulkseq", name) ~ "bulk",
+                                      TRUE ~ "astrocytes")) %>%
+    mutate(tissue = case_when(grepl("bulkseq", name) ~ "bulk",
+                                      TRUE ~ "scRNAseq")) %>%
+    mutate_at(c("name", "infection_status", "cell_type", "tissue"), as.factor)
+  
+
+#1b. Adjust levels
+sc_Tha_tbl2 <-
+  sc_Tha_tbl2 %>%
+  mutate(name = factor(name, 
+                       levels = c("bulkseq_T_40",
+                                  "B_2P4M_astrocytes_infected_uninfected",
+                                  "B_2P4M_astrocytes_infected_low", 
+                                  "B_2P4M_astrocytes_infected_high", 
+                                  "B_2P4M_astrocytes_neurons_uninfected",
+                                  "B_2P4M_astrocytes_neurons_infected"))) %>%
+  mutate(tissue = factor(tissue, levels = c("bulk", "scRNAseq")))
+
+#2. Make a version with just "infected" cells
+sc_Tha_tbl2.infected <-
+  sc_Tha_tbl2 %>%
+  filter(infection_status == "infected") %>%
+  mutate(name = factor(name, levels = c( "bulkseq_T_40", "B_2P4M_astrocytes_neurons_infected", "B_2P4M_astrocytes_infected_high", "B_2P4M_astrocytes_infected_low")))
+
+levels(sc_Tha_tbl2.infected$name)
+
+```
+
+
+
+### Plotting
+
+```{r plotting, echo=F}
+#plotting parameters
+infected.colors <- c("black",  Neuron_color,  AstrocteReactive_color, Astrocyte_color)
+line.size = 1.75
+theme_set(theme_classic())
+
+#save parameters
+output.plot.path = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/0_raw_read_analysis/plots/"
+device.call = "png"
+p.width = 14
+p.height = 7
+  
+###Generate Plots
+Tha_IGV_Coverage.infected.Area.NoLabel.plot <-
+  ggplot(sc_Tha_tbl2.infected, aes(x=pos, y=cov, color=name, fill=name)) +
+    ylab(label="normalized coverage") +
+    scale_color_manual(values = infected.colors) +
+    scale_fill_manual(values = infected.colors) +
+    xlab(label="Position (bp)") +
+    geom_area(linewidth = line.size, alpha = 0.1, position = 'identity') +
+    geom_area(linewidth = line.size, position = 'identity', fill = NA) +
+    #geom_density(aes(cov), linewidth = line.size, position = 'identity') +
+    theme(strip.background = element_blank(), strip.text = element_blank())+
+    facet_wrap(~tissue, scales = "free", ncol=1)+
+    guides(color="none", fill="none")
+
+ggsave(filename = paste0("Tha_IGV_Coverage.infected.Area.NoLabel.plot", ".", device.call), 
+       plot = Tha_IGV_Coverage.infected.Area.NoLabel.plot, device = device.call, 
+       path = output.plot.path, 
+       width = p.width, height = p.height, units = "in")
+
+
+Tha_IGV_Coverage.infected.Area.Label.plot <-
+  ggplot(sc_Tha_tbl2.infected, aes(x=pos, y=cov, color=name, fill=name)) +
+    ylab(label="normalized coverage") +
+    scale_color_manual(values = infected.colors) +
+    scale_fill_manual(values = infected.colors) +
+    xlab(label="Position (bp)") +
+    geom_area(linewidth = line.size, alpha = 0.1, position = 'identity') +
+    geom_area(linewidth = line.size, position = 'identity', fill = NA) +
+    theme(strip.background = element_blank(), strip.text = element_blank())+
+    facet_wrap(~tissue, scales = "free", ncol=1)
+
+ggsave(filename = paste0("Tha_IGV_Coverage.infected.Area.Label.plot", ".", device.call), 
+       plot = Tha_IGV_Coverage.infected.Area.Label.plot, device = device.call, 
+       path = output.plot.path, 
+       width = p.width, height = p.height, units = "in")
+
+```

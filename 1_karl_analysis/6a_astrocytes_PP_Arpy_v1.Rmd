@@ -1,0 +1,64 @@
+----------------------
+Setup / Generate Astro Subclusters
+----------------------
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(Matrix)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load Data
+```{r load data, echo=FALSE}
+
+tha.celltype.infections.summary <- read_rds(tha.celltype.infections.summary.path)
+tha.seurat                      <- read_rds(tha.seurat.path)
+
+
+```
+
+#2. Run Seurat Workflow for the Astrocytes 
+```{r create a SO for just the astrocytes, echo=FALSE}
+astro.seurat <- subset(tha.seurat, subset = CoarseCellType == 'Astrocyte')
+rm(tha.seurat)
+
+astro.seurat <- NormalizeData(astro.seurat)
+astro.seurat <- FindVariableFeatures(astro.seurat)
+astro.seurat <- ScaleData(astro.seurat)
+astro.seurat <- RunPCA(astro.seurat)
+astro.seurat <- FindNeighbors(astro.seurat, dims = 1:20)
+astro.seurat <- FindClusters(astro.seurat, resolution = 0.08, n.start=50, n.iter=50)
+astro.seurat <- RunUMAP(astro.seurat, dims = 1:20)
+astro.seurat@reductions$umap@cell.embeddings[,'UMAP_2'] <- -astro.seurat@reductions$umap@cell.embeddings[,'UMAP_2']
+
+astro.markers <- FindAllMarkers(astro.seurat)
+
+write_rds(astro.seurat, file = astro.seurat.path)
+write_rds(astro.markers, file = astro.seurat.markers.RDS)
+
+#astro.seurat  <- read_rds('Data/seurat_obj/astro.seurat.RDS') #commented out to protect Karl's original files
+#astro.markers <- read_rds('Data/seurat_obj/astro.seurat.markers.RDS') #commented out to protect Karl's original files
+
+
+```
+
+#3. Save astrocyte-specific tha_summary file
+```{r astrocyte-specifci summary, echo = FALSE}
+
+astro.seurat  <- read_rds(astro.seurat.path)
+
+FetchData(astro.seurat, c('UMAP_1', 'UMAP_2', 'ident')) %>%
+  rownames_to_column(var = 'CBC') %>%
+  rename('astro_UMAP_1' = 'UMAP_1', 'astro_UMAP_2' = 'UMAP_2') %>%
+  merge(filter(tha.celltype.infections.summary, CoarseCellType == 'Astrocyte'), by = 'CBC') -> tha.celltype.infections.summary_astrocytes
+
+#Save
+saveRDS(object = tha.celltype.infections.summary_astrocytes, file = tha.celltype.infections.summary_astrocytes.path)
+
+
+```

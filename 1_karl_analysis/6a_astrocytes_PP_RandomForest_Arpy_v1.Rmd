@@ -1,0 +1,434 @@
+---
+title: "Random Forest Regression Analysis for Gene Expression Relationships related to Viral RNA Load"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(Seurat)
+library(Matrix)
+library(viridis)
+library(randomForest)
+library(ranger)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load Data
+```{r load data, echo=FALSE}
+
+tha.celltype.infections.summary_astrocytes          <- readRDS(file = tha.celltype.infections.summary_astrocytes.path)
+astro.seurat                                        <- readRDS(file = astro.seurat.path)
+astro.seurat.markers                                <- readRDS(file = astro.seurat.markers.path)
+tha.celltype.infections.summary_astrocytes_CLEAN2   <- readRDS(file = tha.celltype.infections.summary_astrocytes_CLEAN2.path)
+
+tha.celltype.infections.summary                 <- read_rds(tha.celltype.infections.summary.path)
+tha.celltype.infections.summary_doubletsflagged <- read_rds(tha.celltype.infections.summary_doubletsflagged.path)
+
+tha.seurat                                 <- readRDS(file = tha.seurat.path)
+
+#Key DE results - all CoarseCellTypes
+DE.tha5.vs.NI.CoarseCellType 					        <- readRDS(DE.tha5.vs.NI.CoarseCellType.path)
+DE.tha05.vs.NI.CoarseCellType 					      <- readRDS(DE.tha05.vs.NI.CoarseCellType.path)
+```
+
+
+#1. RF Regression for Viral Load
+```{r preprocessing before RF, echo =FALSE}
+
+#pull the DYNLL1 AND DYNLL2 genes
+all_genes_to_show <- rownames(tha.seurat@assays$RNA@data)
+
+#use center, scaled log transformed expression data
+all_gene_subset <- 
+FetchData(tha.seurat, all_genes_to_show, slot='data') %>%
+  rownames_to_column(var = 'CBC') %>%
+  merge(tha.celltype.infections.summary, by = 'CBC')
+
+astro_subset <-
+  tha.celltype.infections.summary_astrocytes_CLEAN2 %>%
+  select(CBC, astro.include, ident) 
+
+AllGene_Summary <- left_join(all_gene_subset, astro_subset, by = 'CBC')
+
+
+#1. Generate Full Norm DGE from Seurat Object and Combine with metadata (including viral load scores)
+#Pull norm/scale DGE from Seurat Object
+tha.seurat_DGE     <- as_tibble(t(as.matrix(tha.seurat@assays$RNA@data)))
+tha.seurat_DGE$CBC <- colnames(tha.seurat@assays$RNA@data)
+
+#Filter doublets from Summary
+tha.celltype.infections.summary_doubletsflagged.NoDoublets <-
+  tha.celltype.infections.summary_doubletsflagged %>%
+  filter(seurat.include == "yes") %>%
+  filter(is_doublet == "no")
+
+tha.seurat_DGE.NoDoublets <-
+  tha.seurat_DGE %>%
+  filter(CBC %in% tha.celltype.infections.summary_doubletsflagged.NoDoublets$CBC)
+
+tha.seurat_DGE_Summary <- left_join(tha.celltype.infections.summary_doubletsflagged.NoDoublets, tha.seurat_DGE, by = 'CBC')
+
+#Filter based on Cell Types
+ExperimentalCellCounts_All_CBC <- 
+    tha.celltype.infections.summary_astrocytes_CLEAN2 %>%
+    pull(CBC)
+
+ExperimentalCellCounts_Cluster1_CBC <- 
+    tha.celltype.infections.summary_astrocytes_CLEAN2 %>%
+    filter(ident == "0") %>%
+    pull(CBC)
+
+ExperimentalCellCounts_Cluster2_CBC <- 
+    tha.celltype.infections.summary_astrocytes_CLEAN2 %>%
+    filter(ident == "2") %>%
+    pull(CBC)
+
+
+tha.seurat_DGE_Summary_Neuron <-
+  tha.seurat_DGE_Summary %>%
+  filter(CoarseCellType == "Neuron")
+
+tha.seurat_DGE_Summary_AllAstrocyte <-
+  tha.seurat_DGE_Summary %>%
+  filter(CBC %in% ExperimentalCellCounts_All_CBC)
+
+tha.seurat_DGE_Summary_Astro_Cluster1 <-
+  tha.seurat_DGE_Summary %>%
+  filter(CBC %in% ExperimentalCellCounts_Cluster1_CBC)
+
+tha.seurat_DGE_Summary_Astro_Cluster2 <-
+  tha.seurat_DGE_Summary %>%
+  filter(CBC %in% ExperimentalCellCounts_Cluster2_CBC)
+
+#2. Pull out the DE Genes driven by Tha0.5 vs NI, taking the union of genes for astrocytes & neurons
+p_thresh = 0.01
+
+DE.tha05.vs.NI.Astrocyte_Neuron_SharedGenes <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type %in% c("Astrocyte", "Neuron")) %>%
+  filter(p_val_adj < p_thresh) %>%
+  mutate(FC_direction = case_when(avg_logFC > 0 ~ "up", 
+                                  avg_logFC < 0 ~ "down")) %>%
+  group_by(FC_direction) %>%
+  count(gene)
+
+#rm unneccessary large files to free up system memory
+rm(tha.seurat_DGE)
+```
+
+##ranger()
+```{r Ranger() package for Random Fores Regression}
+#Random Forest Regression -- Ranger Package
+set.seed(1)
+rf.save.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/random_forest/6_astrocytes/"
+importance_type = "permutation"
+
+#de_62
+n_tree_de_62 = 1000
+formula_de_62 <- as.formula(paste("ViralLoad", "~", paste(DE.tha05.vs.NI.Astrocyte_Neuron_SharedGenes$gene, collapse = " + ")))
+
+####Neuron
+rf.Neuron.model.de_62                            <- ranger(formula = formula_de_62, data = tha.seurat_DGE_Summary_Neuron, num.trees = n_tree_de_62, importance = importance_type, write.forest = TRUE)
+ImpData_rf.Neuron.model.de_62                    <- as.data.frame(rf.Neuron.model.de_62$variable.importance)
+ImpData_rf.Neuron.model.de_62$Var.Names          <- names(rf.Neuron.model.de_62$variable.importance)
+#Save
+saveRDS(object = rf.Neuron.model.de_62,               file = paste0(rf.save.path, "rf.Neuron.model.de_62_ranger.RDS"))
+saveRDS(object = ImpData_rf.Neuron.model.de_62,       file = paste0(rf.save.path, "ImpData_rf.Neuron.model.de_62_ranger.RDS"))
+
+###AllAstrocyte
+rf.AllAstrocyte.model.de_62                      <- ranger(formula = formula_de_62, data = tha.seurat_DGE_Summary_AllAstrocyte, num.trees = n_tree_de_62, importance = importance_type, write.forest = TRUE)
+ImpData_rf.AllAstrocyte.model.de_62              <- as.data.frame(rf.AllAstrocyte.model.de_62$variable.importance)
+ImpData_rf.AllAstrocyte.model.de_62$Var.Names    <- names(rf.AllAstrocyte.model.de_62$variable.importance)
+#Save
+saveRDS(object = rf.AllAstrocyte.model.de_62,         file = paste0(rf.save.path, "rf.AllAstrocyte.model.de_62_ranger.RDS"))
+saveRDS(object = ImpData_rf.AllAstrocyte.model.de_62, file = paste0(rf.save.path, "ImpData_rf.AllAstrocyte.model.de_62_ranger.RDS"))
+
+###Astro_Cluster1
+rf.Astro_Cluster1.model.de_62                    <- ranger(formula = formula_de_62, data = tha.seurat_DGE_Summary_Astro_Cluster1, num.trees = n_tree_de_62, importance = importance_type, write.forest = TRUE)
+ImpData_rf.Astro_Cluster1.model.de_62            <- as.data.frame(rf.Astro_Cluster1.model.de_62$variable.importance)
+ImpData_rf.Astro_Cluster1.model.de_62$Var.Names  <- names(rf.Astro_Cluster1.model.de_62$variable.importance)
+#Save
+saveRDS(object = rf.Astro_Cluster1.model.de_62,         file = paste0(rf.save.path, "rf.Astro_Cluster1.model.de_62_ranger.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster1.model.de_62, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster1.model.de_62_ranger.RDS"))
+
+###Astro_Cluster2
+rf.Astro_Cluster2.model.de_62                    <- ranger(formula = formula_de_62, data = tha.seurat_DGE_Summary_Astro_Cluster2, num.trees = n_tree_de_62, importance = importance_type, write.forest = TRUE)
+ImpData_rf.Astro_Cluster2.model.de_62            <- as.data.frame(rf.Astro_Cluster2.model.de_62$variable.importance)
+ImpData_rf.Astro_Cluster2.model.de_62$Var.Names  <- names(rf.Astro_Cluster2.model.de_62$variable.importance)
+#Save
+saveRDS(object = rf.Astro_Cluster2.model.de_62,         file = paste0(rf.save.path, "rf.Astro_Cluster2.model.de_62_ranger.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster2.model.de_62, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster2.model.de_62_ranger.RDS"))
+
+
+
+
+
+#all_genes
+n_tree_all_genes_ranger = 1000
+
+TestedGenesNeurons <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type == "Neuron") %>%
+  pull(gene)
+
+TestedGenesAstrocyte <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type == "Astrocyte") %>%
+  pull(gene)
+
+all_human_genes <- intersect(x = TestedGenesNeurons, y = TestedGenesAstrocyte)
+#formula_all_genes <- as.formula(paste("ViralLoad", "~", paste(all_human_genes, collapse = " + ")))
+
+
+###Neuron
+rf.Neuron.model.all_genes                            <- ranger(dependent.variable.name = "ViralLoad",  data = tha.seurat_DGE_Summary_Neuron[, c("ViralLoad", all_human_genes)],  num.trees = n_tree_all_genes_ranger,  importance = importance_type, keep.inbag = FALSE)
+ImpData_rf.Neuron.model.all_genes                    <- as.data.frame(rf.Neuron.model.all_genes$variable.importance)
+ImpData_rf.Neuron.model.all_genes$Var.Names          <- names(ImpData_rf.Neuron.model.all_genes$variable.importance)
+#Save
+saveRDS(object = rf.Neuron.model.all_genes,               file = paste0(rf.save.path, "rf.Neuron.model.all_genes_ranger.RDS"))
+saveRDS(object = ImpData_rf.Neuron.model.all_genes,       file = paste0(rf.save.path, "ImpData_rf.Neuron.model.all_genes_ranger.RDS"))
+
+###AllAstrocyte
+rf.AllAstrocyte.model.all_genes                      <- ranger(dependent.variable.name = "ViralLoad",  data = tha.seurat_DGE_Summary_AllAstrocyte[, c("ViralLoad", all_human_genes)],  num.trees = n_tree_all_genes_ranger,  importance = importance_type, keep.inbag = FALSE)
+ImpData_rf.AllAstrocyte.model.all_genes              <- as.data.frame(rf.AllAstrocyte.model.all_genes$variable.importance)
+ImpData_rf.AllAstrocyte.model.all_genes$Var.Names    <- names(ImpData_rf.AllAstrocyte.model.all_genes$variable.importance)
+#Save
+saveRDS(object = rf.AllAstrocyte.model.all_genes,         file = paste0(rf.save.path, "rf.AllAstrocyte.model.all_genes_ranger.RDS"))
+saveRDS(object = ImpData_rf.AllAstrocyte.model.all_genes, file = paste0(rf.save.path, "ImpData_rf.AllAstrocyte.model.all_genes_ranger.RDS"))
+
+###Astro_Cluster1
+rf.Astro_Cluster1.model.all_genes                    <- ranger(dependent.variable.name = "ViralLoad",  data = tha.seurat_DGE_Summary_Astro_Cluster1[, c("ViralLoad", all_human_genes)],  num.trees = n_tree_all_genes_ranger,  importance = importance_type, keep.inbag = FALSE)
+ImpData_rf.Astro_Cluster1.model.all_genes            <- as.data.frame(rf.Astro_Cluster1.model.all_genes$variable.importance)
+ImpData_rf.Astro_Cluster1.model.all_genes$Var.Names  <- names(ImpData_rf.Astro_Cluster1.model.all_genes$variable.importance )
+#Save
+saveRDS(object = rf.Astro_Cluster1.model.all_genes,         file = paste0(rf.save.path, "rf.Astro_Cluster1.model.all_genes_ranger.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster1.model.all_genes, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster1.model.all_genes_ranger.RDS"))
+
+###Astro_Cluster2
+rf.Astro_Cluster2.model.all_genes                    <- ranger(dependent.variable.name = "ViralLoad",  data = tha.seurat_DGE_Summary_Astro_Cluster2[, c("ViralLoad", all_human_genes)],  num.trees = n_tree_all_genes_ranger,  importance = importance_type, keep.inbag = FALSE)
+ImpData_rf.Astro_Cluster2.model.all_genes            <- as.data.frame(rf.Astro_Cluster2.model.all_genes$variable.importance)
+ImpData_rf.Astro_Cluster2.model.all_genes$Var.Names  <- names(ImpData_rf.Astro_Cluster2.model.all_genes$variable.importance)
+#Save
+saveRDS(object = rf.Astro_Cluster2.model.all_genes,         file = paste0(rf.save.path, "rf.Astro_Cluster2.model.all_genes_ranger.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster2.model.all_genes, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster2.model.all_genes_ranger.RDS"))
+
+```
+
+
+#rangerForest()
+```{r rangerForest() package for Random Forest Regression}
+#Random Forest Regression
+set.seed(1)
+rf.save.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/random_forest/6_astrocytes/"
+
+#de_62
+n_tree_de_62_RF = 1000
+formula_de_62 <- as.formula(paste("ViralLoad", "~", paste(DE.tha05.vs.NI.Astrocyte_Neuron_SharedGenes$gene, collapse = " + ")))
+
+#Neuron
+rf.Neuron.model.de_62                            <- randomForest(formula_de_62, data = tha.seurat_DGE_Summary_Neuron, ntree=n_tree_de_62_RF, keep.forest=FALSE, importance=TRUE, do.trace = 50)
+ImpData_rf.Neuron.model.de_62                    <- as.data.frame(importance(rf.Neuron.model.de_62))
+ImpData_rf.Neuron.model.de_62$Var.Names          <- row.names(ImpData_rf.Neuron.model.de_62)
+
+#Save
+saveRDS(object = rf.Neuron.model.de_62,               file = paste0(rf.save.path, "rf.Neuron.model.de_62.RDS"))
+saveRDS(object = ImpData_rf.Neuron.model.de_62,       file = paste0(rf.save.path, "ImpData_rf.Neuron.model.de_62.RDS"))
+
+#AllAstrocyte
+rf.AllAstrocyte.model.de_62                      <- randomForest(formula_de_62, data = tha.seurat_DGE_Summary_AllAstrocyte, ntree=n_tree_de_62_RF, keep.forest=FALSE, importance=TRUE, do.trace = 50)
+ImpData_rf.AllAstrocyte.model.de_62              <- as.data.frame(importance(rf.AllAstrocyte.model.de_62))
+ImpData_rf.AllAstrocyte.model.de_62$Var.Names    <- row.names(ImpData_rf.AllAstrocyte.model.de_62)
+
+#Save
+saveRDS(object = rf.AllAstrocyte.model.de_62,         file = paste0(rf.save.path, "rf.AllAstrocyte.model.de_62.RDS"))
+saveRDS(object = ImpData_rf.AllAstrocyte.model.de_62, file = paste0(rf.save.path, "ImpData_rf.AllAstrocyte.model.de_62.RDS"))
+
+#Cluster 1
+rf.Astro_Cluster1.model.de_62                    <- randomForest(formula_de_62, data = tha.seurat_DGE_Summary_Astro_Cluster1, ntree=n_tree_de_62_RF, keep.forest=FALSE, importance=TRUE, do.trace = 50)
+ImpData_rf.Astro_Cluster1.model.de_62            <- as.data.frame(importance(rf.Astro_Cluster1.model.de_62))
+ImpData_rf.Astro_Cluster1.model.de_62$Var.Names  <- row.names(ImpData_rf.Astro_Cluster1.model.de_62 )
+
+#Save
+saveRDS(object = rf.Astro_Cluster1.model.de_62,         file = paste0(rf.save.path, "rf.Astro_Cluster1.model.de_62.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster1.model.de_62, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster1.model.de_62.RDS"))
+
+#Cluster 2
+rf.Astro_Cluster2.model.de_62                    <- randomForest(formula_de_62, data = tha.seurat_DGE_Summary_Astro_Cluster2, ntree=n_tree_de_62_RF, keep.forest=FALSE, importance=TRUE, do.trace = 50)
+ImpData_rf.Astro_Cluster2.model.de_62            <- as.data.frame(importance(rf.Astro_Cluster2.model.de_62))
+ImpData_rf.Astro_Cluster2.model.de_62$Var.Names  <- row.names(ImpData_rf.Astro_Cluster2.model.de_62)
+
+#Save
+saveRDS(object = rf.Astro_Cluster2.model.de_62,         file = paste0(rf.save.path, "rf.Astro_Cluster2.model.de_62.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster2.model.de_62, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster2.model.de_62.RDS"))
+
+
+#all_genes
+n_tree_all_genes_RF = 200 #set to 1000 originally
+
+TestedGenesNeurons <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type == "Neuron") %>%
+  pull(gene)
+
+TestedGenesAstrocyte <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type == "Astrocyte") %>%
+  pull(gene)
+
+all_human_genes <- intersect(x = TestedGenesNeurons, y = TestedGenesAstrocyte)
+
+
+#Neuron
+rf.Neuron.model.all_genes                            <- randomForest(x  =  tha.seurat_DGE_Summary_Neuron[,all_human_genes],  y = tha.seurat_DGE_Summary_Neuron[,"ViralLoad"], ntree=n_tree_all_genes_RF, keep.forest=FALSE, importance=TRUE, do.trace = 5) #CAREFUL! VERY SLOW
+ImpData_rf.Neuron.model.all_genes                    <- as.data.frame(rf.Neuron.model.all_genes$importance)
+ImpData_rf.Neuron.model.all_genes$Var.Names          <- row.names(ImpData_rf.Neuron.model.all_genes)
+
+# ImpData_rf.Neuron.model.all_genes                    <- as.data.frame(RF.rf.Neuron.model.all_genes_SAVE$importance)
+# ImpData_rf.Neuron.model.all_genes$Var.Names          <- row.names(RF.rf.Neuron.model.all_genes_SAVE$importance)
+
+#Save
+saveRDS(object = rf.Neuron.model.all_genes,               file = paste0(rf.save.path, "rf.Neuron.model.all_genes.RDS"))
+saveRDS(object = ImpData_rf.Neuron.model.all_genes,       file = paste0(rf.save.path, "ImpData_rf.Neuron.model.all_genes.RDS"))
+
+#AllAstrocyte
+rf.AllAstrocyte.model.all_genes                      <- randomForest(x  =  tha.seurat_DGE_Summary_AllAstrocyte[,all_human_genes],  y = tha.seurat_DGE_Summary_AllAstrocyte[,"ViralLoad"], ntree=n_tree_all_genes_RF, keep.forest=FALSE, importance=TRUE, do.trace = 5)
+ImpData_rf.AllAstrocyte.model.all_genes              <- as.data.frame(rf.AllAstrocyte.model.all_genes$importance)
+ImpData_rf.AllAstrocyte.model.all_genes$Var.Names    <- row.names(ImpData_rf.AllAstrocyte.model.all_genes)
+
+#Save
+saveRDS(object = rf.AllAstrocyte.model.all_genes,         file = paste0(rf.save.path, "rf.AllAstrocyte.model.all_genes.RDS"))
+saveRDS(object = ImpData_rf.AllAstrocyte.model.all_genes, file = paste0(rf.save.path, "ImpData_rf.AllAstrocyte.model.all_genes.RDS"))
+
+#Cluster 1
+rf.Astro_Cluster1.model.all_genes                    <- randomForest(x  =  tha.seurat_DGE_Summary_Astro_Cluster1[,all_human_genes],  y = tha.seurat_DGE_Summary_Astro_Cluster1[,"ViralLoad"], ntree=n_tree_all_genes_RF, keep.forest=FALSE, importance=TRUE, do.trace = 5)
+ImpData_rf.Astro_Cluster1.model.all_genes            <- as.data.frame(rf.Astro_Cluster1.model.all_genes$importance)
+ImpData_rf.Astro_Cluster1.model.all_genes$Var.Names  <- row.names(ImpData_rf.Astro_Cluster1.model.all_genes )
+
+#Save
+saveRDS(object = rf.Astro_Cluster1.model.all_genes,         file = paste0(rf.save.path, "rf.Astro_Cluster1.model.all_genes.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster1.model.all_genes, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster1.model.all_genes.RDS"))
+
+#Cluster 2
+rf.Astro_Cluster2.model.all_genes                    <- randomForest(x  =  tha.seurat_DGE_Summary_Astro_Cluster2[,all_human_genes],  y = tha.seurat_DGE_Summary_Astro_Cluster2[,"ViralLoad"], ntree=n_tree_all_genes_RF, keep.forest=FALSE, importance=TRUE, do.trace = 5)
+ImpData_rf.Astro_Cluster2.model.all_genes            <- as.data.frame(rf.Astro_Cluster2.model.all_genes$importance)
+ImpData_rf.Astro_Cluster2.model.all_genes$Var.Names  <- row.names(ImpData_rf.Astro_Cluster2.model.all_genes)
+
+#Save
+saveRDS(object = rf.Astro_Cluster2.model.all_genes,         file = paste0(rf.save.path, "rf.Astro_Cluster2.model.all_genes.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster2.model.all_genes, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster2.model.all_genes.RDS"))
+
+```
+#rangerForest() -- NO DYNNL1
+```{r rangerForest() package for Random Forest Regression}
+#Random Forest Regression
+set.seed(1)
+rf.save.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/random_forest/6_astrocytes/"
+
+
+DE.tha05.vs.NI.Astrocyte_Neuron_SharedGenes_NoDYNNL1 <- DE.tha05.vs.NI.Astrocyte_Neuron_SharedGenes$gene[ DE.tha05.vs.NI.Astrocyte_Neuron_SharedGenes$gene != "DYNLL1" ] 
+
+#de_62
+n_tree_de_62_RF = 1000
+formula_de_62_NoDYNLL1 <- as.formula(paste("ViralLoad", "~", paste(DE.tha05.vs.NI.Astrocyte_Neuron_SharedGenes_NoDYNNL1, collapse = " + ")))
+
+#Neuron
+rf.Neuron.model.de_62_NoDYNLL1                   <- randomForest(formula_de_62_NoDYNLL1, data = tha.seurat_DGE_Summary_Neuron, ntree=n_tree_de_62_RF, keep.forest=FALSE, importance=TRUE, do.trace = 50)
+ImpData_rf.Neuron.model.de_62_NoDYNLL1           <- as.data.frame(rf.Neuron.model.de_62_NoDYNLL1$importance)
+# ImpData_rf.Neuron.model.de_62_NoDYNLL1$Var.Names <- row.names(ImpData_rf.Neuron.model.de_62_NoDYNLL1)ImpDataimportance_rf.Neuron.model.de_62_NoDYNLL1$Var.Names <- row.names(ImpData_rf.Neuron.model.de_62_NoDYNLL1)
+
+#Save
+saveRDS(object = rf.Neuron.model.de_62_NoDYNLL1,               file = paste0(rf.save.path, "rf.Neuron.model.de_62_NoDYNLL1.RDS"))
+saveRDS(object = ImpData_rf.Neuron.model.de_62_NoDYNLL1,       file = paste0(rf.save.path, "ImpData_rf.Neuron.model.de_62_NoDYNLL1.RDS"))
+
+#AllAstrocyte
+rf.AllAstrocyte.model.de_62_NoDYNLL1                      <- randomForest(formula_de_62_NoDYNLL1, data = tha.seurat_DGE_Summary_AllAstrocyte, ntree=n_tree_de_62_RF, keep.forest=FALSE, importance=TRUE, do.trace = 50)
+ImpData_rf.AllAstrocyte.model.de_62_NoDYNLL1              <- as.data.frame(rf.AllAstrocyte.model.de_62_NoDYNLL1$importance)
+#ImpData_rf.AllAstrocyte.model.de_62_NoDYNLL1$Var.Names    <- row.names(ImpData_rf.AllAstrocyte.model.de_62_NoDYNLL1)
+
+#Save
+saveRDS(object = rf.AllAstrocyte.model.de_62_NoDYNLL1,         file = paste0(rf.save.path, "rf.AllAstrocyte.model.de_62_NoDYNLL1.RDS"))
+saveRDS(object = ImpData_rf.AllAstrocyte.model.de_62_NoDYNLL1, file = paste0(rf.save.path, "ImpData_rf.AllAstrocyte.model.de_62_NoDYNLL1.RDS"))
+
+#Cluster 1
+rf.Astro_Cluster1.model.de_62_NoDYNLL1                    <- randomForest(formula_de_62_NoDYNLL1, data = tha.seurat_DGE_Summary_Astro_Cluster1, ntree=n_tree_de_62_RF, keep.forest=FALSE, importance=TRUE, do.trace = 50)
+ImpData_rf.Astro_Cluster1.model.de_62_NoDYNLL1            <- as.data.frame(rf.Astro_Cluster1.model.de_62_NoDYNLL1$importance)
+#ImpData_rf.Astro_Cluster1.model.de_62_NoDYNLL1$Var.Names  <- row.names(ImpData_rf.Astro_Cluster1.model.de_62_NoDYNLL1 )
+
+#Save
+saveRDS(object = rf.Astro_Cluster1.model.de_62_NoDYNLL1,         file = paste0(rf.save.path, "rf.Astro_Cluster1.model.de_62_NoDYNLL1.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster1.model.de_62_NoDYNLL1, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster1.model.de_62_NoDYNLL1.RDS"))
+
+#Cluster 2
+rf.Astro_Cluster2.model.de_62_NoDYNLL1                    <- randomForest(formula_de_62_NoDYNLL1, data = tha.seurat_DGE_Summary_Astro_Cluster2, ntree=n_tree_de_62_RF, keep.forest=FALSE, importance=TRUE, do.trace = 50)
+ImpData_rf.Astro_Cluster2.model.de_62_NoDYNLL1            <- as.data.frame(rf.Astro_Cluster2.model.de_62_NoDYNLL1$importance)
+#ImpData_rf.Astro_Cluster2.model.de_62_NoDYNLL1$Var.Names  <- row.names(ImpData_rf.Astro_Cluster2.model.de_62_NoDYNLL1)
+
+#Save
+saveRDS(object = rf.Astro_Cluster2.model.de_62_NoDYNLL1,         file = paste0(rf.save.path, "rf.Astro_Cluster2.model.de_62_NoDYNLL1.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster2.model.de_62_NoDYNLL1, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster2.model.de_62_NoDYNLL1.RDS"))
+
+
+#all_genes
+n_tree_all_genes_RF = 200 #set to 1000 originally
+
+TestedGenesNeurons <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type == "Neuron") %>%
+  pull(gene)
+
+TestedGenesAstrocyte <-
+  DE.tha05.vs.NI.CoarseCellType %>%
+  filter(cell_type == "Astrocyte") %>%
+  pull(gene)
+
+all_human_genes          <- intersect(x = TestedGenesNeurons, y = TestedGenesAstrocyte)
+all_human_genes_NoDYNLL1 <- all_human_genes[ all_human_genes != "DYNLL1" ]
+
+#Neuron
+rf.Neuron.model.all_genes_NoDYNLL1                            <- randomForest(x  =  tha.seurat_DGE_Summary_Neuron[,all_human_genes_NoDYNLL1],  y = tha.seurat_DGE_Summary_Neuron[,"ViralLoad"], ntree=n_tree_all_genes_RF, keep.forest=FALSE, importance=TRUE, do.trace = 5) #CAREFUL! VERY SLOW
+ImpData_rf.Neuron.model.all_genes_NoDYNLL1                    <- as.data.frame(rf.Neuron.model.all_genes_NoDYNLL1$importance)
+ImpData_rf.Neuron.model.all_genes_NoDYNLL1$Var.Names          <- row.names(ImpData_rf.Neuron.model.all_genes_NoDYNLL1)
+
+# ImpData_rf.Neuron.model.all_genes                    <- as.data.frame(RF.rf.Neuron.model.all_genes_SAVE$importance)
+# ImpData_rf.Neuron.model.all_genes$Var.Names          <- row.names(RF.rf.Neuron.model.all_genes_SAVE$importance)
+
+#Save
+saveRDS(object = rf.Neuron.model.all_genes_NoDYNLL1,               file = paste0(rf.save.path, "rf.Neuron.model.all_genes_NoDYNLL1.RDS"))
+saveRDS(object = ImpData_rf.Neuron.model.all_genes_NoDYNLL1,       file = paste0(rf.save.path, "ImpData_rf.Neuron.model.all_genes_NoDYNLL1.RDS"))
+
+#AllAstrocyte
+rf.AllAstrocyte.model.all_genes_NoDYNLL1                      <- randomForest(x  =  tha.seurat_DGE_Summary_AllAstrocyte[,all_human_genes_NoDYNLL1],  y = tha.seurat_DGE_Summary_AllAstrocyte[,"ViralLoad"], ntree=n_tree_all_genes_RF, keep.forest=FALSE, importance=TRUE, do.trace = 5)
+ImpData_rf.AllAstrocyte.model.all_genes_NoDYNLL1              <- as.data.frame(rf.AllAstrocyte.model.all_genes_NoDYNLL1$importance)
+ImpData_rf.AllAstrocyte.model.all_genes_NoDYNLL1$Var.Names    <- row.names(ImpData_rf.AllAstrocyte.model.all_genes_NoDYNLL1)
+
+#Save
+saveRDS(object = rf.AllAstrocyte.model.all_genes_NoDYNLL1,         file = paste0(rf.save.path, "rf.AllAstrocyte.model.all_genes_NoDYNLL1.RDS"))
+saveRDS(object = ImpData_rf.AllAstrocyte.model.all_genes_NoDYNLL1, file = paste0(rf.save.path, "ImpData_rf.AllAstrocyte.model.all_genes_NoDYNLL1.RDS"))
+
+#Cluster 1
+rf.Astro_Cluster1.model.all_genes_NoDYNLL1                    <- randomForest(x  =  tha.seurat_DGE_Summary_Astro_Cluster1[,all_human_genes_NoDYNLL1],  y = tha.seurat_DGE_Summary_Astro_Cluster1[,"ViralLoad"], ntree=n_tree_all_genes_RF, keep.forest=FALSE, importance=TRUE, do.trace = 5)
+ImpData_rf.Astro_Cluster1.model.all_genes_NoDYNLL1            <- as.data.frame(rf.Astro_Cluster1.model.all_genes_NoDYNLL1$importance)
+ImpData_rf.Astro_Cluster1.model.all_genes_NoDYNLL1$Var.Names  <- row.names(ImpData_rf.Astro_Cluster1.model.all_genes_NoDYNLL1 )
+
+#Save
+saveRDS(object = rf.Astro_Cluster1.model.all_genes_NoDYNLL1,         file = paste0(rf.save.path, "rf.Astro_Cluster1.model.all_genes_NoDYNLL1.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster1.model.all_genes_NoDYNLL1, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster1.model.all_genes_NoDYNLL1.RDS"))
+
+#Cluster 2
+rf.Astro_Cluster2.model.all_genes_NoDYNLL1                    <- randomForest(x  =  tha.seurat_DGE_Summary_Astro_Cluster2[,all_human_genes_NoDYNLL1],  y = tha.seurat_DGE_Summary_Astro_Cluster2[,"ViralLoad"], ntree=n_tree_all_genes_RF, keep.forest=FALSE, importance=TRUE, do.trace = 5)
+ImpData_rf.Astro_Cluster2.model.all_genes_NoDYNLL1            <- as.data.frame(rf.Astro_Cluster2.model.all_genes_NoDYNLL1$importance)
+ImpData_rf.Astro_Cluster2.model.all_genes_NoDYNLL1$Var.Names  <- row.names(ImpData_rf.Astro_Cluster2.model.all_genes_NoDYNLL1)
+
+#Save
+saveRDS(object = rf.Astro_Cluster2.model.all_genes_NoDYNLL1,         file = paste0(rf.save.path, "rf.Astro_Cluster2.model.all_genes_NoDYNLL1.RDS"))
+saveRDS(object = ImpData_rf.Astro_Cluster2.model.all_genes_NoDYNLL1, file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster2.model.all_genes_NoDYNLL1.RDS"))
+
+```

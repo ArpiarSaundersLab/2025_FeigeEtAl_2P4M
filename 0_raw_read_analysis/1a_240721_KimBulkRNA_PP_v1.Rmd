@@ -1,0 +1,105 @@
+---
+title: "Generate Summary File of Kim et al Tha vs Tha4M Bulk RNA Seq"
+author: "Arpy"
+date: '2024-08-03'
+output: html_document
+---
+
+### Setup
+
+```{r setup-libraries, echo=FALSE, cache=FALSE}
+options(width = 300)
+
+# libraries
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(readxl)
+library(stringr)
+library(biomaRt)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+
+```
+
+
+###Load
+```{r load data, echo=F, cache=F}
+#define path and file name ending
+dir_path     <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/0_raw_read_analysis/input_data/Tha_bulkRNAseq_rsem/"
+file_pattern <- '.csv$' # regex pattern to match the file name format
+
+Tha_RSEM_summary <- 
+  list.files(dir_path, pattern = file_pattern) %>% 
+  map_df(~ read_dir(dir_path, .))
+
+
+
+
+Tha_RSEM_summary <-
+  Tha_RSEM_summary %>%
+  mutate(experiment_name = case_when(	file_name == "SRR14871087.genes.results.csv" ~ "NI_0_rep1",
+			file_name == "SRR14871088.genes.results.csv" ~ "NI_0_rep2",
+			file_name == "SRR14871089.genes.results.csv" ~ "NI_0_rep3",
+			file_name == "SRR14871090.genes.results.csv" ~ "NI_24_rep1",
+			file_name == "SRR14871091.genes.results.csv" ~ "NI_24_rep2",
+			file_name == "SRR14871092.genes.results.csv" ~ "NI_24_rep3",
+			file_name == "SRR14871093.genes.results.csv" ~ "NI_40_rep1",
+			file_name == "SRR14871094.genes.results.csv" ~ "NI_40_rep2",
+			file_name == "SRR14871095.genes.results.csv" ~ "NI_40_rep3",
+			file_name == "SRR14871096.genes.results.csv" ~ "NI_8_rep1",
+			file_name == "SRR14871097.genes.results.csv" ~ "NI_8_rep2",
+			file_name == "SRR14871098.genes.results.csv" ~ "NI_8_rep3",
+			file_name == "SRR14871099.genes.results.csv" ~ "T_0_rep1",
+			file_name == "SRR14871100.genes.results.csv" ~ "T_0_rep2",
+			file_name == "SRR14871101.genes.results.csv" ~ "T_0_rep3",
+			file_name == "SRR14871102.genes.results.csv" ~ "T_24_rep1",
+			file_name == "SRR14871103.genes.results.csv" ~ "T_24_rep3",
+			file_name == "SRR14871104.genes.results.csv" ~ "T_40_rep1",
+			file_name == "SRR14871105.genes.results.csv" ~ "T_40_rep2",
+			file_name == "SRR14871106.genes.results.csv" ~ "T_40_rep3",
+			file_name == "SRR14871107.genes.results.csv" ~ "T4M_0_rep1",
+			file_name == "SRR14871108.genes.results.csv" ~ "T4M_0_rep2",
+			file_name == "SRR14871109.genes.results.csv" ~ "T4M_0_rep3",
+			file_name == "SRR14871110.genes.results.csv" ~ "T4M_24_rep1",
+			file_name == "SRR14871111.genes.results.csv" ~ "T4M_24_rep2",
+			file_name == "SRR14871112.genes.results.csv" ~ "T4M_40_rep1",
+			file_name == "SRR14871113.genes.results.csv" ~ "T4M_40_rep2",
+			file_name == "SRR14871114.genes.results.csv" ~ "T4M_40_rep3",
+			file_name == "SRR14871115.genes.results.csv" ~ "T4M_8_rep1",
+			file_name == "SRR14871116.genes.results.csv" ~ "T4M_8_rep2",
+			file_name == "SRR14871117.genes.results.csv" ~ "T4M_8_rep3",
+			file_name == "SRR14871118.genes.results.csv" ~ "T_8_rep1",
+			file_name == "SRR14871119.genes.results.csv" ~ "T_8_rep2",
+			file_name == "SRR14871120.genes.results.csv" ~ "T_8_rep3",
+			TRUE ~ NA))
+
+Tha_RSEM_summary <-
+  Tha_RSEM_summary %>%
+  mutate(infection_condition = str_extract(Tha_RSEM_summary.test$experiment_name, "[^_]+")) %>%
+  mutate(infection_timepoint = str_extract(Tha_RSEM_summary.test$experiment_name, "\\d+(?=_[a-zA-Z]+.+$)")) %>%
+  mutate(experiment_replicate = substrRight(Tha_RSEM_summary.test$experiment_name, 4))
+
+
+#Save Summary File
+saveRDS(object = Tha_RSEM_summary, 
+        file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/0_raw_read_analysis/output_data/Tha_RSEM_summary.RDS")
+
+
+
+
+# mart <- useMart('ENSEMBL_MART_ENSEMBL')
+# mart <- useDataset('hsapiens_gene_ensembl', mart)
+# 
+# annotLookup <- getBM(
+#   mart = mart,
+#   attributes = c(
+#     'hgnc_symbol',
+#     'ensembl_gene_id',
+#     'gene_biotype'),
+#   uniqueRows = TRUE)
+
+
+```

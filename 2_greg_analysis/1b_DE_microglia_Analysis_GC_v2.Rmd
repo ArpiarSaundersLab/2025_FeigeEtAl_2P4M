@@ -1,0 +1,98 @@
+---
+title: "Comparison of DE results from Microglia"
+author: "Arpy"
+date: '2024-11-12'
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(Seurat)
+library(Libra)
+```
+
+#0. Load Data
+```{r}
+main.path <- "~/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/"
+
+ni.v.2p4m05 <- read_rds(paste(main.path,'Data/de/mg_ni_vs_2p4m05_de.RDS', sep = ''))
+ni.v.tha05 <- read_rds(paste(main.path,'Data/de/mg_ni_vs_tha05_de.RDS', sep = ''))
+ni.v.tha5 <- read_rds(paste(main.path,'Data/de/mg_ni_vs_tha5_de.RDS', sep = ''))
+
+```
+
+#1. Number of Significant DEs per Comparison vs. Titer
+```{r}
+ log_fc_cutoff <- 0.2
+ p_val_cutoff <- 0.005
+
+ni.v.2p4m05_sig <- ni.v.2p4m05 %>%
+    filter(p_val_adj <= p_val_cutoff, avg_logFC <= -log_fc_cutoff | avg_logFC >= log_fc_cutoff)
+
+ni.v.tha05_sig <- ni.v.tha05 %>%
+    filter(p_val_adj <= p_val_cutoff, avg_logFC <= -log_fc_cutoff | avg_logFC >= log_fc_cutoff)
+
+ni.v.tha5_sig <- ni.v.tha5 %>%
+    filter(p_val_adj <= p_val_cutoff, avg_logFC <= -log_fc_cutoff | avg_logFC >= log_fc_cutoff)
+
+```
+
+#2. Compare Significant DEs across Titer
+```{r}
+# Count number that are up and down
+
+ni.v.tha05_sig <- ni.v.tha05_sig %>%
+  mutate(Valence = case_when(
+    avg_logFC < 0 ~ "Down",
+    avg_logFC >= 0 ~ "Up"
+  ))
+
+ni.v.tha05_sig <- ni.v.tha05_sig %>%
+  mutate(Comp = case_when(
+    cell_type == 'Microglia' ~ "tha05"
+  ))
+
+ni.v.2p4m05_sig <- ni.v.2p4m05_sig %>%
+  mutate(Valence = case_when(
+    avg_logFC < 0 ~ "Down",
+    avg_logFC >= 0 ~ "Up"
+  ))
+
+ni.v.2p4m05_sig <- ni.v.2p4m05_sig %>%
+  mutate(Comp = case_when(
+    cell_type == 'Microglia' ~ "2p4m05"
+  ))
+
+ni.v.tha5_sig <- ni.v.tha5_sig %>%
+  mutate(Valence = case_when(
+    avg_logFC < 0 ~ "Down",
+    avg_logFC >= 0 ~ "Up"
+  ))
+
+ni.v.tha5_sig <- ni.v.tha5_sig %>%
+  mutate(Comp = case_when(
+    cell_type == 'Microglia' ~ "tha5"
+  ))
+
+all_comp <- rbind(ni.v.tha05_sig,ni.v.2p4m05_sig,ni.v.tha5_sig)
+all_comp$Comp <- factor(all_comp$Comp, levels = c("tha05", "2p4m05", "tha5"))
+
+# Stacked bar plot
+
+stack_counts <- ggplot(all_comp, aes(x = Comp, y = Valence, fill = Valence)) +
+                    geom_bar(stat = "identity") +
+                    labs(title = "Stacked Bar Plot",
+                         x = "Category",
+                         y = "Value") +
+                    theme_minimal()
+
+plot(stack_counts)
+
+```
+
+
+
+
+
+
+

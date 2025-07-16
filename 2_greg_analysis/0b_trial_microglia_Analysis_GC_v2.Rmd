@@ -1,0 +1,394 @@
+---
+title: "Seurat Microglia Basics Plotting"
+author: "Arpy"
+date: '2024-11-12'
+output: html_document
+---
+
+# Adapted code from K. Young's 7_astrocytes.rmd for the 2P4M project
+G.Chin 06/21/24
+
+```{r load libraries and source, echo = F}
+library(tidyverse)
+library(Seurat)
+library(Libra)
+
+source("/Users/arpiarsaunders/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+source("/Users/arpiarsaunders/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+```
+
+#0. Load Microglia Seurat Object
+```{r load, echo = F}
+mg.seurat <- read_rds('~/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Data/seurat_obj/mg_seurat.RDS')
+```
+
+#1. Plotting Basics
+```{r umap plotting, echo = F}
+
+trial.plot.path <- "~/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Plots/0_trial_microglia/"
+
+# Replot Microglia based off metadata groups
+
+DimPlot(mg.seurat)
+
+MG_umap_titer <- DimPlot(mg.seurat, group.by = 'Titer')
+
+MG_umap_infected <- DimPlot(mg.seurat, group.by ='infected') +
+               theme_bw()+
+               theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                     axis.title.y = element_text(size = 18),               # Y-axis label size
+                     axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                     axis.text.y = element_text(size = 15)) +
+               scale_color_manual(values = c(Uninfected_color, Infected_color))+
+               theme(legend.position="none")
+
+
+MG_umap_experiment <- DimPlot(mg.seurat, group.by ='Experiment') +
+               theme_bw()+
+               theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                     axis.title.y = element_text(size = 18),               # Y-axis label size
+                     axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                     axis.text.y = element_text(size = 15)) +
+               scale_color_manual(values = c(Uninfected_color,Tha_color, Tha2P4M_color, Tha5_color))+  # Custom colors
+               theme(legend.position="none")
+
+MG_umap_experiment_split <- DimPlot(mg.seurat, group.by ='Experiment', split.by  = 'Experiment') +
+               theme_bw()+
+               theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                     axis.title.y = element_text(size = 18),               # Y-axis label size
+                     axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                     axis.text.y = element_text(size = 15)) +
+               scale_color_manual(values = c(Uninfected_color,Tha_color, Tha2P4M_color, Tha5_color))+
+               theme(legend.position="none")# Custom colors
+
+MG_PCA_titer <- DimPlot(mg.seurat, reduction = "pca", group.by = 'Titer') + 
+               coord_equal() + 
+               xlim(-10,10) + 
+               ylim(-20,20) +
+               theme_bw()+
+               theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                     axis.title.y = element_text(size = 18),               # Y-axis label size
+                     axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                     axis.text.y = element_text(size = 15)) +
+               scale_color_manual(values = c(Titer_0_color, Titer_05_color, Titer_5_color))  # Custom colors
+
+MG_PCA_experiment <- DimPlot(mg.seurat, reduction = "pca", group.by = 'Experiment') + 
+               coord_equal() + 
+               xlim(-10,10) + 
+               ylim(-20,20) +
+               theme_bw()+
+               theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                     axis.title.y = element_text(size = 18),               # Y-axis label size
+                     axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                     axis.text.y = element_text(size = 15)) +
+               scale_color_manual(values = c(Uninfected_color, Tha_color, Tha2P4M_color, Tha5_color))
+  
+MG_PCA_experiment_split <- DimPlot(mg.seurat, reduction = "pca", split.by = 'Experiment', group.by = 'Experiment', cols =  c(Uninfected_color,Tha_color, Tha2P4M_color, Tha5_color))  # Custom colors
+  
+
+PCA_load_1 <- VizDimLoadings(mg.seurat, dims = 1, reduction = "pca", nfeatures = 30, balanced = T) +
+                     theme_bw()+
+                     theme(axis.title.x = element_text(size = 18, family = "Arial"),               # X-axis label size
+                     axis.title.y = element_text(size = 18),               # Y-axis label size
+                     axis.text.x = element_text(size = 10, family = "Arial"),                # X-axis tick mark size
+                     axis.text.y = element_text(size = 10, face = "italic", family = "Arial"))
+
+PCA_load_2 <- VizDimLoadings(mg.seurat, dims = 2, reduction = "pca", nfeatures = 30, balanced = T) +
+                     theme_bw()+
+                     theme(axis.title.x = element_text(size = 18, family = "Arial"),               # X-axis label size
+                     axis.title.y = element_text(size = 18),               # Y-axis label size
+                     axis.text.x = element_text(size = 10, family = "Arial"),                # X-axis tick mark size
+                     axis.text.y = element_text(size = 10, face = "italic", family = "Arial"))
+
+#Saving
+ggsave(paste0(trial.plot.path, "mg_umap_experiment_plot.png"), plot = MG_umap_experiment, width = 5, height= 5, units='in', dpi=600, device = "png")
+
+ggsave(paste0(trial.plot.path, "mg_umap_infected_plot.png"), plot = MG_umap_infected, width = 5, height= 5, units='in', dpi=600, device = "png")
+
+ggsave(paste0(trial.plot.path, "mg_umap_experipment_split.png"), plot = MG_umap_experiment_split, width = 10, height= 4.5, units='in', dpi=600, device = "png")
+
+ggsave(paste0(trial.plot.path, "mg_pca_titer_plot.png"), plot = MG_PCA_titer, width = 5, height= 5, units='in', dpi=600, device = "png")
+
+ggsave(paste0(trial.plot.path, "mg_pca_loading.png"), plot = PCA_load_1, width = 3, height= 5, units='in', dpi=600, device = "png")
+
+ggsave(paste0(trial.plot.path, "mg_pca_loading_2.png"), plot = PCA_load_2, width = 2, height= 5, units='in', dpi=600, device = "png")
+
+ggsave(paste0(trial.plot.path, "mg_pca_loading_1.png"), plot = PCA_load_1, width = 2, height= 5, units='in', dpi=600, device = "png")
+
+ggsave(paste0(trial.plot.path, "mg_pca_split.png"), plot = MG_PCA_experiment_split, width = 10, height= 4.5, units='in', dpi=600, device = "png")
+
+ggsave(paste0(trial.plot.path, "mg_pca_experiment.png"), plot = MG_PCA_experiment, width = 5.5, height= 5, units='in', dpi=600, device = "png")
+
+```
+
+#2. Gene Expression and Principal Component PLotting
+```{r fig.height = 5, fig.width = 5}
+
+# Fetch PCA values and gene expression data for a specific gene
+pca_loadings <- mg.seurat[["pca"]]@feature.loadings
+
+pca_loadings <- as.data.frame(pca_loadings) %>%
+  arrange(desc(PC_2))
+
+pc_genes <- rownames(pca_loadings)
+
+# Replace with the gene you want to plot
+genes <- c(pc_genes[1:15])  
+pca_data <- FetchData(mg.seurat, vars = c(paste0("PC_2"), genes,'Experiment','Titer'))
+
+# View the first few rows of data
+head(pca_data)
+
+# Create the scatter plot
+for (i in (1:length(genes))) {
+  
+   pca_vs_gene <-  ggplot(pca_data, aes_string(x = "PC_2", y = genes[i], color = 'Titer')) +
+                          geom_point() +
+                          labs(
+                            x = "PC2",
+                            y = paste("Expression of", genes[i])
+                              ) +
+                          geom_smooth(method = "loess", se = FALSE, aes(group = 1, color = "black")) +
+                          scale_color_manual(values = c(Titer_0_color, Titer_05_color, Titer_5_color,'black')) +
+                          theme_minimal() + 
+                           theme(axis.title.x = element_text(size = 10),               # X-axis label size
+                                 axis.title.y = element_text(size = 10),               # Y-axis label size
+                                 axis.text.x = element_text(size = 5),                # X-axis tick mark size
+                                 axis.text.y = element_text(size = 5))
+
+plot(pca_vs_gene)
+
+                          }
+
+```
+
+#4. Save PC Loadings
+```{r save pc loadings, echo = F}
+saveRDS(pca_loadings,file = '~/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Data/pc_loadings.RDS')
+
+```
+
+#5. Create Comparative Scatter Plot
+```{r}
+# Create scatter plots for NKFB Genes as well
+
+genes <- c('MAVS', 'NAP1L1','TBK1','TBKBP1', 'TICAM1', 'TLR3','TLR4','TLR9')
+pca_data_nfkb <- FetchData(mg.seurat, vars = c(paste0("PC_2"), genes,'Experiment','Titer'))
+
+for (i in (1:length(genes))) {
+  
+   pca_vs_gene <-  ggplot(pca_data_nfkb, aes_string(x = "PC_2", y = genes[i], color = 'Titer')) +
+                          geom_point() +
+                          labs(
+                            x = "PC2",
+                            y = paste("Expression of", genes[i])
+                          ) +
+                          geom_smooth(method = "loess", se = FALSE, aes(group = 1, color = "black")) +
+                          scale_color_manual(values = c(Titer_0_color, Titer_05_color, Titer_5_color,'black')) +                          
+                          theme_minimal() + 
+                           theme(axis.title.x = element_text(size = 10),               # X-axis label size
+                                 axis.title.y = element_text(size = 10),               # Y-axis label size
+                                 axis.text.x = element_text(size = 5),                # X-axis tick mark size
+                                 axis.text.y = element_text(size = 5))
+
+plot(pca_vs_gene)
+
+                          }
+
+```
+
+#6. Final Gene Choices Plot and Save (IFN)
+```{r}
+
+pca.vs.gene.plot.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Plots/3_pca_vs_gene_microglia/"
+
+
+genes <- c('ISG15', 'IFIT3', 'IDO1')
+
+   pca_vs_gene_1 <-  ggplot(pca_data, aes_string(x = "PC_2", y = genes[1], color = 'Titer')) +
+                          geom_point() +
+                          labs(
+                            x = "PC_2",
+                            y = paste(genes[1], " Expression")
+                          ) +
+                          ylim(0, 5) +
+                          geom_smooth(method = "loess", se = FALSE, aes(group = 1, color = "black")) +
+                          scale_color_manual(values = c(Titer_0_color, Titer_05_color, Titer_5_color,'black')) +                        
+                           theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                                 axis.title.y = element_text(size = 18),               # Y-axis label size
+                                 axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                                 axis.text.y = element_text(size = 15),
+                                 panel.grid.major = element_blank(),  # Remove major grid lines
+                                 panel.grid.minor = element_blank(),  # Remove minor grid lines
+                                 panel.background = element_blank(),
+                                 axis.line = element_line(size = 0.5))
+   
+   pca_vs_gene_2 <-  ggplot(pca_data, aes_string(x = "PC_2", y = genes[2], color = 'Titer')) +
+                          geom_point() +
+                          labs(
+                            x = "PC_2",
+                            y = paste(genes[2], " Expression")
+                          ) +
+                          ylim(0, 5) +
+                          geom_smooth(method = "loess", se = FALSE, aes(group = 1, color = "black")) +
+                          scale_color_manual(values = c(Titer_0_color, Titer_05_color, Titer_5_color,'black')) +                          
+                           theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                                 axis.title.y = element_text(size = 18),               # Y-axis label size
+                                 axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                                 axis.text.y = element_text(size = 15),
+                                 panel.grid.major = element_blank(),  # Remove major grid lines
+                                 panel.grid.minor = element_blank(),  # Remove minor grid lines
+                                 panel.background = element_blank(),
+                                 axis.line = element_line(size = 0.5))
+   
+      pca_vs_gene_3 <-  ggplot(pca_data, aes_string(x = "PC_2", y = genes[3], color = 'Titer')) +
+                          geom_point() +
+                          labs(
+                            x = "PC_2",
+                            y = paste(genes[3], " Expression")
+                          ) +
+                          ylim(0, 5) +
+                          geom_smooth(method = "loess", se = FALSE, aes(group = 1, color = "black")) +
+                          scale_color_manual(values = c(Titer_0_color, Titer_05_color, Titer_5_color,'black')) +                          
+                           theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                                 axis.title.y = element_text(size = 18),               # Y-axis label size
+                                 axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                                 axis.text.y = element_text(size = 15),
+                                 panel.grid.major = element_blank(),  # Remove major grid lines
+                                 panel.grid.minor = element_blank(),  # Remove minor grid lines
+                                 panel.background = element_blank(),
+                                 axis.line = element_line(size = 0.5))
+
+ggsave(paste0(pca.vs.gene.plot.path, "mg_pca_gene1.png"),        plot = pca_vs_gene_1, width = 6, height= 3, units='in', dpi=600, device = "png")
+ggsave(paste0(pca.vs.gene.plot.path, "mg_pca_gene2.png"),        plot = pca_vs_gene_2, width = 6, height= 3, units='in', dpi=600, device = "png")
+ggsave(paste0(pca.vs.gene.plot.path, "mg_pca_gene3.png"),        plot = pca_vs_gene_3, width = 6, height= 3, units='in', dpi=600, device = "png")
+
+
+
+   pca_vs_gene_1_experiment <-  ggplot(pca_data, aes_string(x = "PC_2", y = genes[1], color = 'Experiment')) +
+                          geom_point() +
+                          labs(
+                            x = "PC_2",
+                            y = paste(genes[1], " Expression")
+                          ) +
+                          ylim(0, 5) +
+                          geom_smooth(method = "loess", se = FALSE, aes(group = 1, color = "black")) +
+                          scale_color_manual(values = c(Uninfected_color,Tha_color, Tha2P4M_color, Tha5_color,'black')) +                        
+                           theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                                 axis.title.y = element_text(size = 18),               # Y-axis label size
+                                 axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                                 axis.text.y = element_text(size = 15),
+                                 panel.grid.major = element_blank(),  # Remove major grid lines
+                                 panel.grid.minor = element_blank(),  # Remove minor grid lines
+                                 panel.background = element_blank(),
+                                 axis.line = element_line(size = 0.5))
+   
+   pca_vs_gene_2_experiment <-  ggplot(pca_data, aes_string(x = "PC_2", y = genes[2], color = 'Experiment')) +
+                          geom_point() +
+                          labs(
+                            x = "PC_2",
+                            y = paste(genes[2], " Expression")
+                          ) +
+                          ylim(0, 5) +
+                          geom_smooth(method = "loess", se = FALSE, aes(group = 1, color = "black")) +
+                          scale_color_manual(values = c(Uninfected_color,Tha_color, Tha2P4M_color, Tha5_color,'black')) +                          
+                           theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                                 axis.title.y = element_text(size = 18),               # Y-axis label size
+                                 axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                                 axis.text.y = element_text(size = 15),
+                                 panel.grid.major = element_blank(),  # Remove major grid lines
+                                 panel.grid.minor = element_blank(),  # Remove minor grid lines
+                                 panel.background = element_blank(),
+                                 axis.line = element_line(size = 0.5))
+   
+      pca_vs_gene_3_experiment <-  ggplot(pca_data, aes_string(x = "PC_2", y = genes[3], color = 'Experiment')) +
+                          geom_point() +
+                          labs(
+                            x = "PC_2",
+                            y = paste(genes[3], " Expression")
+                          ) +
+                          ylim(0, 5) +
+                          geom_smooth(method = "loess", se = FALSE, aes(group = 1, color = "black")) +
+                          scale_color_manual(values = c(Uninfected_color,Tha_color, Tha2P4M_color, Tha5_color,'black')) +                          
+                           theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                                 axis.title.y = element_text(size = 18),               # Y-axis label size
+                                 axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                                 axis.text.y = element_text(size = 15),
+                                 panel.grid.major = element_blank(),  # Remove major grid lines
+                                 panel.grid.minor = element_blank(),  # Remove minor grid lines
+                                 panel.background = element_blank(),
+                                 axis.line = element_line(size = 0.5))
+      
+ggsave(paste0(pca.vs.gene.plot.path, "mg_pca_gene1_experiment.png"),        plot = pca_vs_gene_1_experiment, width = 6, height= 3, units='in', dpi=600, device = "png")
+ggsave(paste0(pca.vs.gene.plot.path, "mg_pca_gene2_experiment.png"),        plot = pca_vs_gene_2_experiment, width = 6, height= 3, units='in', dpi=600, device = "png")
+ggsave(paste0(pca.vs.gene.plot.path, "mg_pca_gene3_experiment.png"),        plot = pca_vs_gene_3_experiment, width = 6, height= 3, units='in', dpi=600, device = "png")
+```
+
+
+#7. Final Gene Choices Plot and Save (NFKB)
+```{r}
+
+genes <- c('TLR3', 'TBK1', 'TLR4')
+
+   pca_vs_gene_nfkb_1 <-  ggplot(pca_data_nfkb, aes_string(x = "PC_2", y = genes[1], color = 'Titer')) +
+                          geom_point() +
+                          labs(
+                            x = "PC_2",
+                            y = paste(genes[1], " Expression")
+                          ) +
+                          ylim(0, 5) +
+                          geom_smooth(method = "loess", se = FALSE, aes(group = 1, color = "black")) +
+                          scale_color_manual(values = c(Titer_0_color, Titer_05_color, Titer_5_color,'black')) +                        
+                           theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                                 axis.title.y = element_text(size = 18),               # Y-axis label size
+                                 axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                                 axis.text.y = element_text(size = 15),
+                                 panel.grid.major = element_blank(),  # Remove major grid lines
+                                 panel.grid.minor = element_blank(),  # Remove minor grid lines
+                                 panel.background = element_blank(),
+                                 axis.line = element_line(size = 0.5))
+   
+   pca_vs_gene_nfkb_2 <-  ggplot(pca_data_nfkb, aes_string(x = "PC_2", y = genes[2], color = 'Titer')) +
+                          geom_point() +
+                          labs(
+                            x = "PC_2",
+                            y = paste(genes[2], " Expression")
+                          ) +
+                          ylim(0, 5) +
+                          geom_smooth(method = "loess", se = FALSE, aes(group = 1, color = "black")) +
+                          scale_color_manual(values = c(Titer_0_color, Titer_05_color, Titer_5_color,'black')) +                          
+                           theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                                 axis.title.y = element_text(size = 18),               # Y-axis label size
+                                 axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                                 axis.text.y = element_text(size = 15),
+                                 panel.grid.major = element_blank(),  # Remove major grid lines
+                                 panel.grid.minor = element_blank(),  # Remove minor grid lines
+                                 panel.background = element_blank(),
+                                 axis.line = element_line(size = 0.5))
+   
+      pca_vs_gene_nfkb_3 <-  ggplot(pca_data_nfkb, aes_string(x = "PC_2", y = genes[3], color = 'Titer')) +
+                          geom_point() +
+                          labs(
+                            x = "PC_2",
+                            y = paste(genes[3], " Expression")
+                          ) +
+                          ylim(0, 5) +
+                          geom_smooth(method = "loess", se = FALSE, aes(group = 1, color = "black")) +
+                          scale_color_manual(values = c(Titer_0_color, Titer_05_color, Titer_5_color,'black')) +                          
+                           theme(axis.title.x = element_text(size = 18),               # X-axis label size
+                                 axis.title.y = element_text(size = 18),               # Y-axis label size
+                                 axis.text.x = element_text(size = 15),                # X-axis tick mark size
+                                 axis.text.y = element_text(size = 15),
+                                 panel.grid.major = element_blank(),  # Remove major grid lines
+                                 panel.grid.minor = element_blank(),  # Remove minor grid lines
+                                 panel.background = element_blank(),
+                                 axis.line = element_line(size = 0.5))
+
+ggsave("~/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Plots/3_pca_vs_gene_microglia/mg_nfkb_pca_gene1.png", plot = pca_vs_gene_nfkb_1, width = 6, height= 3, units='in', dpi=600, device = "png")
+
+ggsave("~/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Plots/3_pca_vs_gene_microglia/mg_nfkb_pca_gene2.png", plot = pca_vs_gene_nfkb_2, width = 6, height= 3, units='in', dpi=600, device = "png")
+
+ggsave("~/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Plots/3_pca_vs_gene_microglia/mg_nfkb_pca_gene3.png", plot = pca_vs_gene_nfkb_3, width = 6, height= 3, units='in', dpi=600, device = "png")
+
+```
+

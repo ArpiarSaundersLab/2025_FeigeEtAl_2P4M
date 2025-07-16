@@ -1,0 +1,296 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(Matrix)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+##Introduction
+In this analysis we generate a 1) "viral summary file" and a 2) cell-type annotated Seurat object. 
+
+
+The "Viral Summary File" is meant to condense the information in the dge s.t. it's easier to explore and describe the effects of infection.
+The viral summary contains the following information for each cell:
+
+  (-- Determined by Experimental Conditions --)
+  CellID
+  Experiment info (titer, virus strain, replicate, etc.)
+
+  (-- Pulled from raw counts in the DGE --)
+  # of Total UMIs
+  # of Viral UMIs (simple sum of all UMIs mapped to viral genome)
+  # of Host UMIs (Total - Viral UMIs)
+  Intracellular Viral Load (Viral UMIs / Total UMIs)
+  Raw counts for each Viral Gene
+
+  (-- Determined by classic Seurat/single-cell workflow --)
+  Mitochondrial outliers/poor quality cells
+  UMAP coords
+  Cell-type Info
+
+  In the next file, we implement a method for calling infections,
+  and will append that to the summary generated here.
+
+##Generate the "Viral Summary File"
+This first chunk pulls CellIDs, and raw UMI count info from the dge. It also splits the Cell IDs so that
+we have easy access to information like the viral species, titer, and experimental replicate.
+
+```{r viral summary file, echo=F}
+#rawdgepath <- 'Data/dge_robjs/all_cells_dge.RDS'
+tha.dge <- readRDS(all_cells_dge.path)
+
+# Pull raw counts for each Viral Gene
+tha.genome <- c("Tha_N", "Tha_P", "Tha_M", "Tha_G", "Tha_L")
+tha.summary <- tha.dge[tha.genome,] %>%
+  as.matrix() %>% t() %>%
+  as_tibble(rownames = "CBC") %>%
+  rename(N = Tha_N, P = Tha_P, M = Tha_M, G = Tha_G, L = Tha_L)
+
+# pull total UMIs from the dge, calculate Viral UMIs, host UMIs, and viral load
+tha.summary <- mutate( tha.summary,
+    TotalUMIs = Matrix::colSums(tha.dge),
+    TotalViral = N + P + M + G + L,
+    TotalHost = TotalUMIs - TotalViral,
+    ViralLoad = TotalViral/TotalUMIs)
+
+# add tube details
+tha.summary <- separate(tha.summary, col=CBC, into=c('Tube',NA),sep=-16,remove=FALSE) %>%
+  mutate(Tube = substr(Tube,1,nchar(Tube)-1)) %>%
+  separate(col=Tube, into=c('Replicate','Strain','Titer'), sep='_', remove=FALSE) %>%
+  unite('Experiment', Strain, Titer, remove=FALSE) %>%
+  mutate(Experiment = factor(Experiment, levels = c('NI_0','Tha_05','2P4M_05','Tha_5')))
+
+# Reorder columns (just for aesthetics)
+tha.summary <- dplyr::select(tha.summary,
+  CBC, Tube, Experiment, Strain, Titer, Replicate, TotalUMIs, TotalHost, TotalViral, ViralLoad, N, P, M, G, L)
+
+```
+
+###Seurat (‘Seurat’ version 4.4.0)
+#A. Generate Standard Seurat Object
+This first chunk generates the standard seurat object. I also append some additional info; the mitochondiral percentage (which I ripped directly from the Seurat vignette), and the info in the summary file that we have so far.
+
+the seurat object does complain about some non-unique gene names. there are exactly 10 genes with multiple entries in the dge. you can check them with table(rownames(tha.dge)) %>% enframe() %>% filter(value > 1). i've checked a couple of simple things, the doubled counts are present in each of the experimental replicate dges, and there doesnt seem to be an apparent pattern in the level of expression. the most highly expressed genes do not appear significantly differentially expressed between experiments, at least not in neurons and astrocytes. all this to say, though seurat will complain, i don't think these are worth worrying about.
+
+```{r Seurat: generate standard seurat object, message=FALSE}
+tha.seurat                  <- CreateSeuratObject( counts = tha.dge[ !rownames(tha.dge) %in% tha.genome ,], project="tha.cellIDS", min.cells=10 )
+tha.seurat[["percent.mt"]]  <- PercentageFeatureSet(tha.seurat, pattern='^MT-')
+tha.seurat                  <- AddMetaData(tha.seurat, column_to_rownames(tha.summary, var='CBC'))
+```
+
+#B. Custom Library QC
+Running some slight variations on the standard QC here, instead of looking at the distributions of mitochondrial percentage or library size in isolation, I'm plotting the joint distribution and filtering outliers by their separation from the main cell density. nothing fancy though, I just end up using hard cutoffs at the end. its easier to see than explain with words
+
+```{r Custom Library QC, message=FALSE}
+
+
+'' %>% {
+  # i define cutoffs here, in this kind of awkward way to avoid cluttering up my r environment with
+  # variable names :). mtmin and mtmax are the min and max values for mitochondrial percentage. hostmin
+  # is the minimum number of host RNAs detected in the cell. i also define a diagonal line (using the two
+  # points method since its easier to eyeball) to set a joint cutoff at a specific ratio of total host RNAs
+  # to mitochondrial percentage. all numbers are on a log10 scale. the idea is to sort of hop between defining
+  # the cutoffs and checking the effect in the following density plot over a couple of iterations
+  
+  mtmin <- 0
+  mtmax <- 1.3
+  
+  hostmin <- 3.4
+  
+  x1 <- 3.4
+  y1 <- 0.7
+  
+  x2 <- 3.95
+  y2 <- 1.3
+  
+  slope <- (y2-y1) / (x2-x1)
+  intercept <- y1 - (x1 * (y2-y1) / (x2-x1))
+  
+  c( 'mtmin' = mtmin, 'mtmax' = mtmax, 'hostmin' = hostmin, 'slope' = slope, 'intercept' = intercept)
+} -> cutoff_params
+
+cutoff_params %>% {
+  # this is just a little helper to plot the cutoff region
+  tibble(
+    x = c(
+      Inf,cutoff_params['hostmin'],cutoff_params['hostmin'],
+      (cutoff_params['mtmax'] - cutoff_params['intercept'])/cutoff_params['slope'],
+      Inf),
+    
+    y = c(
+      cutoff_params['mtmin'], cutoff_params['mtmin'],
+      (cutoff_params['hostmin'] * cutoff_params['slope']) + cutoff_params['intercept'],
+      cutoff_params['mtmax'], cutoff_params['mtmax']
+    ))
+} -> cutoff_region
+
+
+
+
+
+
+# density plot
+# side note: can also color these plots by total viral RNA to see how the infection affects
+# these QC metrics. on the whole, does not seem to alter much.
+
+#supp.labels <- c("No Infection", "Tha(0.5)", "Tha2P4M(0.5)", "Tha(5.0)")
+
+tha.seurat[[]] %>%
+  filter(!((Tube == 'C_2P4M_05') | (Tube == 'C_Tha_5'))) %>%
+  arrange(TotalViral) %>%
+  ggplot(aes(log10(TotalHost), log10(percent.mt)))+
+  ggpointdensity::geom_pointdensity(size=0.4)+
+  
+  geom_path(mapping = aes(x,y), data=cutoff_region, linewidth = 2 ) +
+  geom_path(mapping = aes(x,y), data=cutoff_region, linewidth = 1, color = 'red' ) +
+  
+  scale_color_viridis_c() +
+  facet_wrap(~Experiment, ncol = 4)+
+  theme (axis.text = element_text (size = 12,  family = "Arial", face = "plain", color = "black"),
+         axis.title = element_text (size = 12, family = "Arial", face = "bold", color = "black"))+
+  labs(x='Host UMIs (log10)', y = '% mt (log10)') -> plot.qc.mito.libsize
+  #theme( axis.text = element_text (size = 8,  family = "Arial", face = "italic", color = "black"))+
+  #facet_wrap(~Experiment, ncol = 4, labeller = supp.labels) -> plot.qc.mito.libsize
+
+strip_legends <- theme(legend.position = 'none',
+  strip.background = element_blank(),
+  strip.text = element_blank(),
+  axis.text = element_blank(),
+  axis.title = element_blank(),
+  axis.ticks = element_blank())
+
+ggsave(plot = plot.qc.mito.libsize, filename = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/2_celltype_annotations/supp_ref.qc.mito.libsize.png", device='png', dpi = 'retina',
+  width = 20, height = 5, units='cm')
+
+ggsave(plot = plot.qc.mito.libsize + strip_legends, filename = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/2_celltype_annotations/supp.qc.mito.libsize.png", device='png', dpi = 'retina',
+  width = 20, height = 5, units='cm')
+  
+
+# this is where we actually label the points as within the cutoff region or not based on those definitions above
+tha.seurat[["mt.outlier"]] <- if_else(
+  (log10(tha.seurat[["percent.mt"]]) >= cutoff_params['mtmin']) &
+  (log10(tha.seurat[["percent.mt"]]) <= cutoff_params['mtmax']) &
+  (log10(tha.seurat[["TotalHost"]]) >= cutoff_params['hostmin']) &
+  (log10(tha.seurat[["percent.mt"]]) <= (log10(tha.seurat[["TotalHost"]]) * cutoff_params['slope'] + cutoff_params['intercept'])),
+  'normal','outlier'
+)
+
+# same as density plot above, just colored by the outlier calls.
+tha.seurat[[]] %>%
+  arrange(TotalViral) %>%
+  ggplot(aes(log10(TotalHost), log10(percent.mt), color = mt.outlier))+
+  geom_point(size=0.8) +
+  
+  geom_hline(yintercept=cutoff_params['mtmin'])+
+  geom_hline(yintercept=cutoff_params['mtmax'])+
+  geom_vline(xintercept=cutoff_params['hostmin'])+
+  geom_abline(slope = cutoff_params['slope'], intercept = cutoff_params['intercept'])+
+  
+  facet_wrap(~Tube)
+
+# It should be obvious from the previous plots that experimental replicates C_2P4M_05 and C_Tha_5 are both
+# of lower quality than the rest of the experimental replicates, so we'll also flag those cells to remove.
+# I don't want to add another column to the summary file though, so I'll just add another option to the
+# 'mt.outlier column', flagging those cells as 'experimental_outliers'
+
+tha.seurat[["mt.outlier"]] <- if_else(
+  (tha.seurat[["Tube"]] == 'C_2P4M_05') |
+  (tha.seurat[["Tube"]] == 'C_Tha_5'),
+  'na_replicate', tha.seurat[[]]$mt.outlier
+) %>% factor(levels = c('normal', 'na_replicate', 'outlier'))
+
+tha.summary %>%
+  merge(tha.seurat@meta.data[,c("percent.mt", "mt.outlier")], by.x='CBC', by.y=0) -> tha.summary
+```
+
+
+#C. Standard Seurat Analysis
+Run the basic Seurat Workflow
+```{r Main Seurat Analysis, echo=FALSE}
+# having flagged the weird mitochondrial outliers, the rest of the workflow essentially proceeds according
+# to the seurat suggestions.
+
+#Copy Seurat Object for RC 1E5 normalization object
+tha.seurat_RC1E5 <- tha.seurat
+
+#Generate Seurat Object/Workflow using Karl's original method
+tha.seurat <- subset(tha.seurat, subset = mt.outlier=='normal')
+tha.seurat <- NormalizeData(tha.seurat)
+tha.seurat <- FindVariableFeatures(tha.seurat)
+tha.seurat <- ScaleData(tha.seurat)
+tha.seurat <- RunPCA(tha.seurat)
+tha.seurat <- FindNeighbors(tha.seurat, dims=1:15)
+tha.seurat <- FindClusters(tha.seurat, resolution=0.12)
+
+tha.seurat <- RunUMAP(tha.seurat, dims=1:15, min.dist=0.4)
+#write_rds(tha.seurat, 'Data/seurat_obj/tha.seurat.RDS')
+
+#Generate Seurat Object/Workflow using RC 1E5 Normalization. Arpy
+tha.seurat_RC1E5 <- subset(tha.seurat_RC1E5, subset = mt.outlier=='normal')
+tha.seurat_RC1E5 <- NormalizeData(tha.seurat_RC1E5, normalization.method = "RC", scale.factor = 1E5)
+# tha.seurat_RC1E5 <- FindVariableFeatures(tha.seurat_RC1E5)
+# tha.seurat_RC1E5 <- RunPCA(tha.seurat_RC1E5)
+# tha.seurat_RC1E5 <- FindNeighbors(tha.seurat_RC1E5, dims=1:15)
+# tha.seurat_RC1E5 <- FindClusters(tha.seurat_RC1E5, resolution=0.12)
+# tha.seurat_RC1E5 <- RunUMAP(tha.seurat_RC1E5, dims=1:15, min.dist=0.4)
+
+write_rds(tha.seurat_RC1E5, "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/seurat_obj/tha.seurat_RC1E5.RDS") #Arpy to prevent overwriting Karl's original below
+
+
+#Push Seurat Cell Type Data to tha.summary
+tha.summary <- mutate( tha.summary,
+  seurat.include = if_else( CBC %in% colnames(tha.seurat), 'yes', 'no' )) %>%
+  merge( Idents(tha.seurat), by.x = 'CBC', by.y = 0, all=TRUE ) %>%
+  rename( seurat.cluster = y ) %>%
+  merge( Embeddings(tha.seurat, reduction='umap'), by.x = 'CBC', by.y = 0, all=TRUE )
+
+tha.summary <- mutate(tha.summary, CellType = seurat.cluster)
+write_rds(tha.summary, 'Data/summaries/tha.basic_Arpy.RDS') #Arpy to prevent overwriting Karl's original below
+#write_rds(tha.summary, 'Data/summaries/tha.basic.RDS')
+```
+
+Analyze and save the marker genes for each cluster and the neuron cluster combination
+```{r Seurat: Find Markers, echo=FALSE}
+tha.seurat  <- read_rds('Data/seurat_obj/tha.seurat.RDS')
+
+
+#Find Markers for all Clusters and for the Neuron Clusters Together. Save the these marker gene files
+tha.markers            <- FindAllMarkers(tha.seurat)
+write_rds(tha.markers, 'Data/seurat_obj/tha.seurat.celltype.markers.RDS')
+
+```
+
+Add Cell type metadata to the Seurat Object and re-save
+```{r add cell type metadata to the seurat object and save, echo=FALSE}
+tha.seurat  <- read_rds('Data/seurat_obj/tha.seurat.RDS')
+tha.summary <- read_rds('Data/summaries/tha.basic.RDS')
+tha.markers <- read_rds('Data/seurat_obj/tha.seurat.celltype.markers.RDS')
+
+tha.summary <- mutate(tha.summary, CellType = seurat.cluster) 
+levels(tha.summary$CellType) <- c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte', 'hNSC', 'Microglia', 'Mitotic')
+tha.summary <- mutate(tha.summary, CoarseCellType = if_else(
+  str_starts(CellType, 'Neuron'), 'Neuron', CellType
+))
+
+new.cluster.ids <- c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte', 'hNSC', 'Microglia', 'Mitotic')
+names(new.cluster.ids) <- levels(tha.seurat)
+tha.seurat <- RenameIdents(tha.seurat, new.cluster.ids)
+rm(new.cluster.ids)
+
+write_rds(tha.seurat, 'Data/seurat_obj/tha.seurat_Arpy.RDS') #Arpy to prevent overwriting Karl's original below
+#write_rds(tha.seurat, 'Data/seurat_obj/tha.seurat.RDS')
+
+write_rds(tha.summary, 'Data/summaries/tha.celltype.no_infection_calls_Arpy.RDS') #Arpy to prevent overwriting Karl's original below
+#write_rds(tha.summary, 'Data/summaries/tha.celltype.no_infection_calls.RDS') 
+
+```

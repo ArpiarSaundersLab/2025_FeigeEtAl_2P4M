@@ -1,0 +1,349 @@
+----------------------
+Perform Analysis of Cell Phone DB Results of Astro_0 vs Astro_2 DE Genes
+----------------------
+
+```{r libraries and functions, message=FALSE}
+
+library(Seurat)
+library(tidyverse)
+library(dplyr)
+library(magrittr)
+#library(liana)
+library(circlize)
+library(Matrix)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+
+#Key Guides
+#https://cellphonedb.readthedocs.io/en/stable/RESULTS-DOCUMENTATION.html
+```
+#Load
+```{r load cpdb results, echo = F}
+
+cpdb.results.path <- "/Users/arpiarsaunders/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/cpdb/cpdb_astrocytes/results/"
+
+#output description: https://github.com/ventolab/CellphoneDB/blob/master/notebooks/T1_Method3.ipynb
+degs_analysis_deconvoluted             <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_deconvoluted_08_28_2024_130625.txt"))
+degs_analysis_deconvoluted_percents    <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_deconvoluted_percents_08_28_2024_130625.txt"))
+degs_analysis_interaction_scores       <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_interaction_scores_08_28_2024_130625.txt"))
+degs_analysis_means                    <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_means_08_28_2024_130625.txt"))
+degs_analysis_relevant_interactions    <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_relevant_interactions_08_28_2024_130625.txt"))
+degs_analysis_significant_means        <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_significant_means_08_28_2024_130625.txt"))
+
+#DE
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2            <- readRDS(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.path)
+```
+
+```{r cpdb results preprocessing, echo=FALSE}
+###Key CPDB results files
+# degs_analysis_deconvoluted             
+# degs_analysis_deconvoluted_percents    
+# degs_analysis_interaction_scores       
+# degs_analysis_means                   
+# degs_analysis_relevant_interactions    
+# degs_analysis_significant_means       
+
+#1. Save DEGs
+avg_logFC_thresh = 1 #thresh of 1 was used for CPDB results
+
+DEG_Astro_2_Up <- 
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC > avg_logFC_thresh) %>%
+  mutate(cluster = "Astro_2") %>%
+  relocate(cluster) %>%
+  select(-cell_type, -de_family, -de_method, -de_type)
+
+DEG_Astro_0_Up <- 
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC < -avg_logFC_thresh) %>%
+  mutate(cluster = "Astro_0") %>%
+  relocate(cluster) %>%
+  select(-cell_type, -de_family, -de_method, -de_type) %>%
+  mutate(avg_logFC = -1 * avg_logFC)
+
+
+
+#0. Only retain Astro_0 and Astro_2 interactions
+
+rel_inter_keep.cols_AstroSender <- c("id_cp_interaction", "interacting_pair", "partner_a", "partner_b", "gene_a", "gene_b", "secreted", "receptor_a", "receptor_b", "annotation_strategy", "is_integrin", "directionality", "classification", 
+                                     "Astro_0|Astro_0", "Astro_0|Astro_2", "Astro_0|Microglia", "Astro_0|Mitotic", "Astro_0|Neuron", "Astro_0|hNSC", 
+                                     "Astro_2|Astro_0", "Astro_2|Astro_2", "Astro_2|Microglia", "Astro_2|Mitotic", "Astro_2|Neuron", "Astro_2|hNSC")
+
+
+rel_inter_keep.cols_AstroReceiver <-c("id_cp_interaction", "interacting_pair", "partner_a", "partner_b", "gene_a", "gene_b", "secreted", "receptor_a", "receptor_b", "annotation_strategy", "is_integrin", "directionality", "classification", 
+                                      "Astro_0|Astro_0", "Astro_0|Astro_2", "Microglia|Astro_0", "Mitotic|Astro_0", "Neuron|Astro_0", "hNSC|Astro_0",
+                                      "Astro_2|Astro_0", "Astro_2|Astro_2", "Microglia|Astro_2", "Mitotic|Astro_2", "Neuron|Astro_2",  "hNSC|Astro_2")
+
+
+degs_analysis_relevant_interactions_AstroSender <-
+  degs_analysis_relevant_interactions %>%
+    select(one_of(rel_inter_keep.cols_AstroSender)) %>%
+    mutate(gene_a_UP_category = case_when(gene_a %in% DEG_Astro_2_Up$gene ~ "Astro_2_UP", gene_a %in% DEG_Astro_0_Up$gene ~ "Astro_0_UP", TRUE ~ NA)) %>%
+    mutate(gene_b_UP_category = case_when(gene_b %in% DEG_Astro_2_Up$gene ~ "Astro_2_UP", gene_b %in% DEG_Astro_0_Up$gene ~ "Astro_0_UP", TRUE ~ NA)) %>%
+    filter(! (is.na(gene_a_UP_category) & is.na(gene_b_UP_category)))
+
+degs_analysis_relevant_interactions_AstroReceiver <-
+  degs_analysis_relevant_interactions %>%
+    select(one_of(rel_inter_keep.cols_AstroReceiver)) %>%
+    mutate(gene_a_UP_category = case_when(gene_a %in% DEG_Astro_2_Up$gene ~ "Astro_2_UP", gene_a %in% DEG_Astro_0_Up$gene ~ "Astro_0_UP", TRUE ~ NA)) %>%
+    mutate(gene_b_UP_category = case_when(gene_b %in% DEG_Astro_2_Up$gene ~ "Astro_2_UP", gene_b %in% DEG_Astro_0_Up$gene ~ "Astro_0_UP", TRUE ~ NA)) %>%
+    filter(! (is.na(gene_a_UP_category) & is.na(gene_b_UP_category)))
+
+
+#https://jokergoo.github.io/circlize_book/book/the-chorddiagram-function.html
+
+
+#1. Filter/Select to get a full set of all possible "Sender" and "Receiver" Genes
+degs_analysis_interaction_scores_FullSenderGenes <-
+  degs_analysis_interaction_scores %>%
+  select(gene_a, secreted, directionality) %>%
+  distinct() %>%
+  rename(gene = gene_a)
+
+degs_analysis_interaction_scores_FullReceiverGenes <-
+  degs_analysis_interaction_scores %>%
+  select(gene_b, secreted, directionality) %>%
+  distinct() %>%
+  filter(!is.na(gene_b)) %>%
+  rename(gene = gene_b)
+
+
+SenderGenes_Astro0 <-
+  degs_analysis_relevant_interactions_AstroSender %>%
+  filter(gene_a_UP_category == "Astro_0_UP") %>%
+  distinct() %>%
+  pull(gene_a)
+
+SenderGenes_Astro2 <-
+  degs_analysis_relevant_interactions_AstroSender %>%
+  filter(gene_a_UP_category == "Astro_2_UP") %>%
+  distinct() %>%
+  pull(gene_a)
+
+ReceiverGenes_Astro0 <-
+  degs_analysis_relevant_interactions_AstroSender %>%
+  filter(gene_b_UP_category == "Astro_0_UP") %>%
+  distinct() %>%
+  pull(gene_b)
+
+ReceiverGenes_Astro2 <-
+  degs_analysis_relevant_interactions_AstroSender %>%
+  filter(gene_b_UP_category == "Astro_2_UP") %>%
+  distinct() %>%
+  pull(gene_b)
+
+#Push Sender/Receiver lists to the DE Results of Astro_0 vs Astro_2 for visualization
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  mutate(AstroSenderClassification = case_when(gene %in% SenderGenes_Astro0 ~ "Astro_0",
+                                                 gene %in% SenderGenes_Astro2 ~ "Astro_2",
+                                                 gene %in% degs_analysis_interaction_scores_FullSenderGenes$gene ~ "IrrelevantSenderGene",
+                                                 TRUE ~ "Not_SenderGene")) %>%
+  arrange(match(AstroSenderClassification, c( "Not_SenderGene", "IrrelevantSenderGene", "Astro_0", "Astro_2")))
+
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteReceiver <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  mutate(AstroReceiverClassification = case_when(gene %in% ReceiverGenes_Astro0 ~ "Astro_0",
+                                                 gene %in% ReceiverGenes_Astro2 ~ "Astro_2",
+                                                 gene %in% degs_analysis_interaction_scores_FullReceiverGenes$gene ~ "IrrelevantReceiverGene",
+                                                 TRUE ~ "Not_ReceiverGene")) %>%
+  arrange(match(AstroReceiverClassification, c( "Not_ReceiverGene", "IrrelevantReceiverGene", "Astro_0", "Astro_2")))
+
+
+###Volcano Plotting
+astro_de.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/volcano/"
+
+#Volcano_AstrocyteSender
+Volcano_AstrocyteSender <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender, aes(x = avg_logFC, y = -log10(p_val_adj), color = AstroSenderClassification, fill = AstroSenderClassification, alpha = AstroSenderClassification, size = AstroSenderClassification))+
+  geom_point(shape = 21)+
+  scale_color_manual(values = c("red", "red", "blue", "grey"))+
+  scale_fill_manual(values = c(Astrocyte_color, AstrocteReactive_color, "blue", "grey"))+
+  scale_alpha_manual(values = c(0.8,0.8,0.5, 0.5))+
+  scale_size_manual(values = c(1.5,1.5,0.5,0.5))+
+  guides(color = "none", fill = "none", alpha = "none", size = "none")+
+  geom_hline(yintercept=2, linetype = 2)+
+  scale_x_continuous(limits = c(-5.5, 5.5))+
+  theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank())
+
+Volcano_AstrocyteSender_reference <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender, aes(x = avg_logFC, y = -log10(p_val_adj), color = AstroSenderClassification, fill = AstroSenderClassification, alpha = AstroSenderClassification, size = AstroSenderClassification, label = gene))+
+  geom_point(shape = 21)+
+  geom_text(hjust=0, vjust=0)+
+  scale_color_manual(values = c("red", "red", "blue", "grey"))+
+  scale_fill_manual(values = c(Astrocyte_color, AstrocteReactive_color, "blue", "grey"))+
+  scale_alpha_manual(values = c(0.8,0.8,0.5, 0.5))+
+  scale_size_manual(values = c(1.5,1.5,0.5,0.5))+
+  #guides(color = "none", fill = "none", alpha = "none", size = "none")+
+  geom_hline(yintercept=2, linetype = 2)+
+  scale_x_continuous(limits = c(-5.5, 5.5))+
+  theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank())
+
+
+
+#Save
+ggsave(paste0(astro_de.path, "Volcano_AstrocyteSender.png"),            Volcano_AstrocyteSender,           device='png', width = 3, height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "Volcano_AstrocyteSender_reference.png"),  Volcano_AstrocyteSender_reference, device='png', width = 30, height=22.5, units='in', dpi=600)
+
+Volcano_AstrocyteReceiver_reference <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteReceiver, aes(x = avg_logFC, y = -log10(p_val_adj), color = AstroReceiverClassification, fill = AstroReceiverClassification, alpha = AstroReceiverClassification, size = AstroReceiverClassification, label = gene))+
+    geom_point(shape = 21)+
+    geom_text(hjust=0, vjust=0)+
+    scale_color_manual(values = c("red", "red", "blue", "grey"))+
+    scale_fill_manual(values = c(Astrocyte_color, AstrocteReactive_color, "blue", "grey"))+
+    scale_alpha_manual(values = c(0.8,0.8,0.5, 0.5))+
+    scale_size_manual(values = c(1.5,1.5,0.5,0.5))+
+    guides(color = "none", fill = "none", alpha = "none", size = "none")+
+    geom_hline(yintercept=2, linetype = 2)+
+    scale_x_continuous(limits = c(-5.5, 5.5))+
+    theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+Volcano_AstrocyteReceiver <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteReceiver, aes(x = avg_logFC, y = -log10(p_val_adj), color = AstroReceiverClassification, fill = AstroReceiverClassification, alpha = AstroReceiverClassification, size = AstroReceiverClassification))+
+     geom_point(shape = 21)+
+     scale_color_manual(values = c("red", "red", "blue", "grey"))+
+     scale_fill_manual(values = c(Astrocyte_color, AstrocteReactive_color, "blue", "grey"))+
+     scale_alpha_manual(values = c(0.8,0.8,0.5, 0.5))+
+     scale_size_manual(values = c(1.5,1.5,0.5,0.5))+
+     guides(color = "none", fill = "none", alpha = "none", size = "none")+
+     geom_hline(yintercept=2, linetype = 2)+
+     scale_x_continuous(limits = c(-5.5, 5.5))+
+     theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+#Save
+ggsave(paste0(astro_de.path, "Volcano_AstrocyteReceiver.png"),            Volcano_AstrocyteReceiver,             device='png', width = 3, height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "Volcano_AstrocyteReceiver_reference.png"),  Volcano_AstrocyteReceiver_reference,   device='png', width = 30, height=22.5, units='in', dpi=600)
+
+
+#Save modified DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 file
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteReceiver_tmp <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteReceiver %>%
+  select(gene, AstroReceiverClassification)
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta1 <- left_join(x = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender, DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteReceiver_tmp, by = "gene")
+
+#save
+de.meta.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/de/de_with_genemetadata/"
+saveRDS(object = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta1, file = paste0(de.meta.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_meta1.RDS"))
+
+```
+
+```{r chord plots of astrocyte interactions across cell types, echo=FALSE}
+###Circle Plots
+#chord plot save path
+astro_chord.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/chord/"
+
+###Preprocess
+
+interaction.cols <- c("Astro_0|Astro_0", "Astro_0|Astro_2", "Astro_0|Microglia", "Astro_0|Mitotic", "Astro_0|Neuron", "Astro_0|hNSC", "Astro_2|Astro_0", "Astro_2|Astro_2", "Astro_2|Microglia", "Astro_2|Mitotic", "Astro_2|Neuron", "Astro_2|hNSC")
+
+#From "Sender" Columns
+interaction.cols.FromAstro_0 <- c("Astro_0|Astro_0", "Astro_0|Astro_2", "Astro_0|Microglia", "Astro_0|Mitotic", "Astro_0|Neuron", "Astro_0|hNSC")
+interaction.cols.FromAstro_2 <- c("Astro_2|Astro_0", "Astro_2|Astro_2", "Astro_2|Microglia", "Astro_2|Mitotic", "Astro_2|Neuron", "Astro_2|hNSC")
+
+lookup.names.FromAstro_0 <- c(Astro_0 = "Astro_0|Astro_0", Astro_2 = "Astro_0|Astro_2", Microglia = "Astro_0|Microglia", Mitotic = "Astro_0|Mitotic", Neuron = "Astro_0|Neuron", hNSC = "Astro_0|hNSC")
+lookup.names.FromAstro_2 <- c(Astro_0 = "Astro_2|Astro_0", Astro_2 = "Astro_2|Astro_2", Microglia = "Astro_2|Microglia", Mitotic = "Astro_2|Mitotic", Neuron = "Astro_2|Neuron", hNSC = "Astro_2|hNSC")
+
+#To "Receiver" Columns
+interaction.cols.ToAstro_0 <- c("Astro_0|Astro_0", "Astro_2|Astro_0", "Microglia|Astro_0", "Mitotic|Astro_0", "Neuron|Astro_0", "hNSC|Astro_0")
+interaction.cols.ToAstro_2 <- c("Astro_0|Astro_2", "Astro_2|Astro_2", "Microglia|Astro_2", "Mitotic|Astro_2", "Neuron|Astro_2", "hNSC|Astro_2")
+
+
+lookup.names.ToAstro_0 <- c(Astro_0 = "Astro_0|Astro_0", Astro_2 = "Astro_2|Astro_0", Microglia = "Microglia|Astro_0", Mitotic = "Mitotic|Astro_0", Neuron = "Neuron|Astro_0", hNSC = "hNSC|Astro_0")
+lookup.names.ToAstro_2 <- c(Astro_0 = "Astro_0|Astro_2", Astro_2 = "Astro_2|Astro_2", Microglia = "Microglia|Astro_2", Mitotic = "Mitotic|Astro_2", Neuron = "Neuron|Astro_2", hNSC = "hNSC|Astro_2")
+
+##Sender
+degs_analysis_relevant_interactions_Circ_FromAstro_0 <-
+  degs_analysis_relevant_interactions_AstroSender %>%
+  filter(gene_a_UP_category == "Astro_0_UP") %>%
+  select(interaction.cols.FromAstro_0) %>%
+  dplyr::rename(all_of(lookup.names.FromAstro_0)) %>%
+  colSums() 
+
+degs_analysis_relevant_interactions_Circ_FromAstro_0_DF                        <- as.data.frame(degs_analysis_relevant_interactions_Circ_FromAstro_0)
+degs_analysis_relevant_interactions_Circ_FromAstro_0_DF$to                     <- rownames(degs_analysis_relevant_interactions_Circ_FromAstro_0_DF)
+degs_analysis_relevant_interactions_Circ_FromAstro_0_DF$from                   <- "Astro_0"
+rownames(degs_analysis_relevant_interactions_Circ_FromAstro_0_DF)              <- NULL
+colnames(degs_analysis_relevant_interactions_Circ_FromAstro_0_DF)[1]           <- "value"
+
+degs_analysis_relevant_interactions_Circ_FromAstro_2 <-
+  degs_analysis_relevant_interactions_AstroSender %>%
+  filter(gene_a_UP_category == "Astro_2_UP") %>%
+  select(interaction.cols.FromAstro_2) %>%
+  dplyr::rename(all_of(lookup.names.FromAstro_2)) %>%
+  colSums() 
+
+degs_analysis_relevant_interactions_Circ_FromAstro_2_DF                        <- as.data.frame(degs_analysis_relevant_interactions_Circ_FromAstro_2)
+degs_analysis_relevant_interactions_Circ_FromAstro_2_DF$to                     <- rownames(degs_analysis_relevant_interactions_Circ_FromAstro_2_DF)
+degs_analysis_relevant_interactions_Circ_FromAstro_2_DF$from                   <- "Astro_2"
+rownames(degs_analysis_relevant_interactions_Circ_FromAstro_2_DF)              <- NULL
+colnames(degs_analysis_relevant_interactions_Circ_FromAstro_2_DF)[1]           <- "value"
+
+Circ_FromAstro <- bind_rows(degs_analysis_relevant_interactions_Circ_FromAstro_0_DF, degs_analysis_relevant_interactions_Circ_FromAstro_2_DF)
+Circ_FromAstro <- Circ_FromAstro[,c(3,2,1)]
+
+
+
+
+#Receiver
+degs_analysis_relevant_interactions_Circ_ToAstro_0 <-
+  degs_analysis_relevant_interactions_AstroReceiver %>%
+  filter(gene_a_UP_category == "Astro_0_UP") %>%
+  select(interaction.cols.ToAstro_0) %>%
+  dplyr::rename(all_of(lookup.names.ToAstro_0)) %>%
+  colSums() 
+
+degs_analysis_relevant_interactions_Circ_ToAstro_0_DF                        <- as.data.frame(degs_analysis_relevant_interactions_Circ_ToAstro_0)
+degs_analysis_relevant_interactions_Circ_ToAstro_0_DF$from                     <- rownames(degs_analysis_relevant_interactions_Circ_ToAstro_0_DF)
+degs_analysis_relevant_interactions_Circ_ToAstro_0_DF$to                   <- "Astro_0"
+rownames(degs_analysis_relevant_interactions_Circ_ToAstro_0_DF)              <- NULL
+colnames(degs_analysis_relevant_interactions_Circ_ToAstro_0_DF)[1]           <- "value"
+
+degs_analysis_relevant_interactions_Circ_ToAstro_2 <-
+  degs_analysis_relevant_interactions_AstroReceiver %>%
+  filter(gene_a_UP_category == "Astro_2_UP") %>%
+  select(interaction.cols.ToAstro_2) %>%
+  dplyr::rename(all_of(lookup.names.ToAstro_2)) %>%
+  colSums() 
+
+degs_analysis_relevant_interactions_Circ_ToAstro_2_DF                        <- as.data.frame(degs_analysis_relevant_interactions_Circ_ToAstro_2)
+degs_analysis_relevant_interactions_Circ_ToAstro_2_DF$from                     <- rownames(degs_analysis_relevant_interactions_Circ_ToAstro_2_DF)
+degs_analysis_relevant_interactions_Circ_ToAstro_2_DF$to                   <- "Astro_2"
+rownames(degs_analysis_relevant_interactions_Circ_ToAstro_2_DF)              <- NULL
+colnames(degs_analysis_relevant_interactions_Circ_ToAstro_2_DF)[1]           <- "value"
+
+Circ_ToAstro <- bind_rows(degs_analysis_relevant_interactions_Circ_ToAstro_0_DF, degs_analysis_relevant_interactions_Circ_ToAstro_2_DF)
+Circ_ToAstro <- Circ_ToAstro[,c(2,3,1)]
+
+grid.col = c(Astro_0 = Astrocyte_color, Astro_2 = AstrocteReactive_color, Microglia = Microglia_color, Mitotic = Mitotic_color, Neuron = Neuron_color, hNSC = hNSC_color)
+
+#Plot & Save Sender #note: need these commands to work in the Console, not an Rmd chunk
+pdf(file = paste0(paste0(astro_chord.path, "ChordDiagram_Circ_FromAstro.plot.pdf")), 
+    width = 4,
+    height = 4)
+chordDiagram(x = Circ_FromAstro, directional = -1, self.link = 1, grid.col = grid.col, column.col = column.col, annotationTrack = "grid")
+dev.off()
+
+pdf(file = paste0(paste0(astro_chord.path, "ChordDiagram_Circ_ToAstro.plot.pdf")), 
+    width = 4,
+    height = 4)
+chordDiagram(x = Circ_ToAstro, directional = -1, self.link = 1, grid.col = grid.col, column.col = column.col, annotationTrack = "grid")
+dev.off()
+
+
+```

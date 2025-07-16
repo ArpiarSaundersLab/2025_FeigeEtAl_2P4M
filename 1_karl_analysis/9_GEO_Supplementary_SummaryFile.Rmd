@@ -1,0 +1,33 @@
+---
+title: "Save Summary File for GEO"
+author: "Arpy"
+date: '2024-12-24'
+output: html_document
+---
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(readxl)
+library(xlsx)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load DE Data
+```{r load DE data, echo=FALSE}
+
+tha.celltype.infections.summary_doubletsflagged <- readRDS(tha.celltype.infections.summary_doubletsflagged.path)                  
+
+```
+
+#1. Save XSLX File
+```{r save de data for manuscript, echo=FALSE}
+sup_table.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/geo_supplementary_summary_file/"
+
+write_csv(x = tha.celltype.infections.summary_doubletsflagged,      file = paste0(sup_table.path, "FeigeEtAl_ThaSummary.csv"))
+
+
+```

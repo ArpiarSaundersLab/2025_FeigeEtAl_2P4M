@@ -1,0 +1,259 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(Seurat)
+
+source("~/Dropbox (OHSU)/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/Dropbox (OHSU)/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/Dropbox (OHSU)/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+
+```{r load data, echo = FALSE}
+tha.celltype.no_infection_calls.summary <- read_rds(tha.celltype.no_infection_calls.summary.path)
+
+tha.starting <- tha.celltype.no_infection_calls.summary %>%
+  filter(seurat.include == 'yes', Strain != 'NI')
+
+tha.starting %>%
+  ggplot(aes(log(TotalUMIs),log(ViralLoad)))+
+  geom_point() + 
+  geom_abline(slope=-0.889, intercept=1.38)
+```
+
+#Infection Calling
+okay the combo of the following functions is how I'm calling infections. the bones for these methods are drawn from a number of blog posts from David Robinson (the blog is called Variance Explained), but especially this one: http://varianceexplained.org/r/mixture-models-baseball/ Essentially, we're modeling the single cell data as a mixture of 2 beta-binomials, which is useful for a number of reasons, the foremost being we didn't have to deal with integer effects, count normalization, etc.
+
+However, after some testing, the beta part of the beta binomial did not seem to be fitting very well. I didn't do a ton of exhaustive testing, but I do tend to plot viral loads on a log scale, and they look approx. normal in that context, so i ended up swapping the beta distribution for a log-normal distribution, which fit well without any twiddling on my part. a little bit more controversially, I added a linear regresison term for both distributions on the (logarithm of) library size, though I think this desicion could be justified by pointing out both the tropism and library size specificity of the microglial cells. in any case, the coefficients for the infected cell population are basically 0, and it clearly helps distinguish smaller uninfected libraries, so i dont really have any qualms about this decision.
+
+```{r EM infection analysis, echo=FALSE}
+set.seed(17)
+
+tha.05.starting       <- filter(tha.starting, Strain == 'Tha', Titer == '05')
+tha.5.starting        <- filter(tha.starting, Strain == 'Tha', Titer == '5')
+tha.2p4m.starting     <- filter(tha.starting, Strain == '2P4M', Titer == '05')
+
+tha.iterations        <- suppressWarnings(iterate_em(tha.starting))
+tha.05.iterations     <- suppressWarnings(iterate_em(tha.05.starting))
+tha.5.iterations      <- suppressWarnings(iterate_em(tha.5.starting))
+tha.2p4m.iterations   <- suppressWarnings(iterate_em(tha.2p4m.starting))
+
+write_rds(tha.iterations,       'Data/infection_calling_EM_fits/tha.iterations.RDS')
+write_rds(tha.05.iterations,    'Data/infection_calling_EM_fits/tha.05.iterations.RDS')
+write_rds(tha.5.iterations,     'Data/infection_calling_EM_fits/tha.5.iterations.RDS')
+write_rds(tha.2p4m.iterations,  'Data/infection_calling_EM_fits/tha.2p4m.iterations.RDS')
+
+#Merge and Save Assignments from each EM Iteration ("tha.assignment_iterations_MERGE")
+tha.assignment_iterations_1           <- tha.assignment_iterations[[1]]$assignments
+tha.assignment_iterations_1$iteration <- 1
+
+tha.assignment_iterations_2           <- tha.assignment_iterations[[2]]$assignments
+tha.assignment_iterations_2$iteration <- 2
+
+tha.assignment_iterations_3           <- tha.assignment_iterations[[3]]$assignments
+tha.assignment_iterations_3$iteration <- 3
+
+tha.assignment_iterations_4           <- tha.assignment_iterations[[4]]$assignments
+tha.assignment_iterations_4$iteration <- 4
+
+tha.assignment_iterations_5           <- tha.assignment_iterations[[5]]$assignments
+tha.assignment_iterations_5$iteration <- 5
+
+tha.assignment_iterations_6           <- tha.assignment_iterations[[6]]$assignments
+tha.assignment_iterations_6$iteration <- 6
+
+tha.assignment_iterations_7           <- tha.assignment_iterations[[7]]$assignments
+tha.assignment_iterations_7$iteration <- 7
+
+tha.assignment_iterations_8           <- tha.assignment_iterations[[8]]$assignments
+tha.assignment_iterations_8$iteration <- 8
+
+tha.assignment_iterations_9           <- tha.assignment_iterations[[9]]$assignments
+tha.assignment_iterations_9$iteration <- 9
+
+tha.assignment_iterations_10           <- tha.assignment_iterations[[10]]$assignments
+tha.assignment_iterations_10$iteration <- 10
+
+tha.assignment_iterations_11           <- tha.assignment_iterations[[11]]$assignments
+tha.assignment_iterations_11$iteration <- 11
+
+tha.assignment_iterations_12           <- tha.assignment_iterations[[12]]$assignments
+tha.assignment_iterations_12$iteration <- 12
+
+tha.assignment_iterations_13           <- tha.assignment_iterations[[13]]$assignments
+tha.assignment_iterations_13$iteration <- 13
+
+tha.assignment_iterations_14           <- tha.assignment_iterations[[14]]$assignments
+tha.assignment_iterations_14$iteration <- 14
+
+tha.assignment_iterations_15           <- tha.assignment_iterations[[15]]$assignments
+tha.assignment_iterations_15$iteration <- 15
+
+tha.assignment_iterations_16           <- tha.assignment_iterations[[16]]$assignments
+tha.assignment_iterations_16$iteration <- 16
+
+tha.assignment_iterations_17           <- tha.assignment_iterations[[17]]$assignments
+tha.assignment_iterations_17$iteration <- 17
+
+tha.assignment_iterations_18           <- tha.assignment_iterations[[18]]$assignments
+tha.assignment_iterations_18$iteration <- 18
+
+tha.assignment_iterations_19           <- tha.assignment_iterations[[19]]$assignments
+tha.assignment_iterations_19$iteration <- 19
+
+tha.assignment_iterations_20           <- tha.assignment_iterations[[20]]$assignments
+tha.assignment_iterations_20$iteration <- 20
+
+tha.assignment_iterations_MERGE <- bind_rows(tha.assignment_iterations_1,
+tha.assignment_iterations_2,
+tha.assignment_iterations_3,
+tha.assignment_iterations_4,
+tha.assignment_iterations_5,
+tha.assignment_iterations_6,
+tha.assignment_iterations_7,
+tha.assignment_iterations_8,
+tha.assignment_iterations_9,
+tha.assignment_iterations_10,
+tha.assignment_iterations_11,
+tha.assignment_iterations_12,
+tha.assignment_iterations_13,
+tha.assignment_iterations_14,
+tha.assignment_iterations_15,
+tha.assignment_iterations_16,
+tha.assignment_iterations_17,
+tha.assignment_iterations_18,
+tha.assignment_iterations_19,
+tha.assignment_iterations_20)
+
+saveRDS(tha.assignment_iterations_MERGE, file = tha.assignment_iterations_MERGE.path)
+
+```
+
+
+```{r Build and Save Tha Summary data with Infection Statuses, echo=FALSE}
+
+tha.celltype.no_infection_calls.summary <- read_rds(tha.celltype.no_infection_calls.summary.path)
+
+tha.iterations                          <- read_rds('Data/infection_calling_EM_fits/tha.iterations.RDS')
+tha.05.iterations                       <- read_rds( 'Data/infection_calling_EM_fits/tha.05.iterations.RDS')
+tha.5.iterations                        <- read_rds( 'Data/infection_calling_EM_fits/tha.5.iterations.RDS')
+tha.2p4m.iterations                     <- read_rds( 'Data/infection_calling_EM_fits/tha.2p4m.iterations.RDS')
+
+
+tha.assignment_iterations       <- tha.iterations %>% map_df("assignments", .id = "iteration")
+tha.05.assignment_iterations    <- tha.05.iterations %>% map_df("assignments", .id = "iteration")
+tha.5.assignment_iterations     <- tha.5.iterations %>% map_df("assignments", .id = "iteration")
+tha.2p4m.assignment_iterations  <- tha.2p4m.iterations %>% map_df("assignments", .id = "iteration")
+
+###Push assignments to replicates
+#NI
+tha.summary %>%
+  select(CBC, TotalUMIs, TotalViral, Experiment) %>%
+  crossing(tha.iterations[[20]]$fits) %>%
+  mutate(likelihood = prior * dlnormbinom(TotalViral, TotalUMIs, mu_off, mu_coef, sig_off, sig_coef)) %>%
+  group_by(CBC) %>%
+  mutate(posterior = likelihood / sum(likelihood)) %>%
+  top_n(1, posterior) %>%
+  ungroup() %>%
+  mutate(infected = if_else(
+    infected == 'A',
+    'no', 'yes'
+  )) %>%
+  mutate(infected = if_else(
+    Experiment == 'NI_0', 'no', infected
+  )) -> tha.assignments
+
+#tha.05
+tha.summary %>%
+  filter(Strain == 'Tha', Titer == '05') %>%
+  select(CBC, TotalUMIs, TotalViral) %>%
+  crossing(tha.05.iterations[[20]]$fits) %>%
+  mutate(likelihood = prior * dlnormbinom(TotalViral, TotalUMIs, mu_off, mu_coef, sig_off, sig_coef)) %>%
+  group_by(CBC) %>%
+  mutate(posterior = likelihood / sum(likelihood)) %>%
+  top_n(1, posterior) %>%
+  ungroup() %>%
+  mutate(infected = if_else(
+    infected == 'A',
+    'yes', 'no'
+  )) -> tha.05.assignments
+
+#tha.5
+tha.summary %>%
+  filter(Strain == 'Tha', Titer == '5') %>%
+  select(CBC, TotalUMIs, TotalViral) %>%
+  crossing(tha.5.iterations[[20]]$fits) %>%
+  mutate(likelihood = prior * dlnormbinom(TotalViral, TotalUMIs, mu_off, mu_coef, sig_off, sig_coef)) %>%
+  group_by(CBC) %>%
+  mutate(posterior = likelihood / sum(likelihood)) %>%
+  top_n(1, posterior) %>%
+  ungroup() %>%
+  mutate(infected = if_else(
+    infected == 'A',
+    'yes', 'no'
+  )) -> tha.5.assignments
+
+#tha.2P4M
+tha.summary %>%
+  filter(Strain == '2P4M', Titer == '05') %>%
+  select(CBC, TotalUMIs, TotalViral) %>%
+  crossing(tha.2p4m.iterations[[20]]$fits) %>%
+  mutate(likelihood = prior * dlnormbinom(TotalViral, TotalUMIs, mu_off, mu_coef, sig_off, sig_coef)) %>%
+  group_by(CBC) %>%
+  mutate(posterior = likelihood / sum(likelihood)) %>%
+  top_n(1, posterior) %>%
+  ungroup() %>%
+  mutate(infected = if_else(
+    infected == 'A',
+    'no', 'yes'
+  )) -> tha.2p4m.assignments
+
+
+tha.ni.assignments <- tha.summary %>%
+  filter(Strain == 'NI') %>%
+  select(CBC, TotalUMIs, TotalViral) %>%
+  mutate(infected = 'no', mu_off = 0, mu_coef = 0, sig_off = 0, sig_coef = 0, number = 0, prior = 0, likelihood = 0, posterior = 0)
+
+#bind all
+tha.assignments <- rbind(tha.05.assignments, tha.5.assignments, tha.2p4m.assignments, tha.ni.assignments)
+
+tha.assignments %>%
+  merge(tha.summary) %>%
+  filter(seurat.include == 'yes') %>%
+  ggplot(aes(log1p(TotalUMIs - TotalViral), log1p(TotalViral), color = infected))+
+  geom_point() +
+  facet_wrap(~Experiment)
+
+tha.summary <- merge(tha.summary,
+  select(tha.assignments, CBC, TotalUMIs, TotalViral, infected, likelihood, posterior), by = c('CBC','TotalUMIs','TotalViral')
+  ) %>%
+  relocate(TotalUMIs, TotalHost, TotalViral, .after=Replicate) %>%
+  rename(infected.likelihood = likelihood, infected.posterior = posterior)
+
+#adjust cell type factors
+tha.summary <- mutate(tha.summary, CellType = factor(CellType, levels =
+    c('Neuron.SHOX2', 'Neuron.OTP', 'Astrocyte', 'Mitotic', 'hNSC', 'Microglia')))
+
+#save summary "tha.celltype.infections"
+write_rds(tha.summary, tha.celltype.infections.summary.path)
+
+
+```
+
+```{r check and save cell numbers by condition, echo=FALSE}
+
+tha.celltype.infections.summary_CellCountDescription <-
+  tha.celltype.infections.summary %>%
+  group_by(Experiment, CoarseCellType) %>%
+  count(infected)
+
+
+saveRDS(object = tha.celltype.infections.summary_CellCountDescription, 
+        file = tha.celltype.infections.summary_CellCountDescription.path)
+
+```

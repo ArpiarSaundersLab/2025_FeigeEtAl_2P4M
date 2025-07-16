@@ -1,0 +1,616 @@
+---
+title: "Single-cell Pseudotime Trajectory Astrocyte Preprocessing"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(Seurat)
+library(monocle3)
+#library(Matrix)
+library(viridis)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load Data
+```{r load data, echo=FALSE}
+
+#summaries
+tha.celltype.infections.summary_astrocytes          <- readRDS(file = tha.celltype.infections.summary_astrocytes.path)
+tha.celltype.infections.summary_astrocytes_CLEAN2   <- readRDS(file = tha.celltype.infections.summary_astrocytes_CLEAN2.path)
+tha.celltype.infections.summary_doubletsflagged     <- read_rds(tha.celltype.infections.summary_doubletsflagged.path)
+
+#astrocyte seurat object
+astro.seurat    <- readRDS(file = astro.seurat.path)
+
+
+```
+
+#1. Create Data Path
+```{r data path, echo = FALSE}
+
+pseudotime.data.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/pseudotime/"
+data.save.path       <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/pseudotime/processed_monocle3/"
+
+```
+
+#2. Generate Monocle Object
+```{r adjust factor levels, echo = FALSE}
+
+
+#A. Create "expression data": raw UMI DGE from cleaned astrocyte Seurat object
+clean2_astrocte_CBCs             <- intersect(x = tha.celltype.infections.summary_astrocytes_CLEAN2$CBC, y = colnames(astro.seurat))
+astro.seurat_clean2              <- subset(astro.seurat, cells = clean2_astrocte_CBCs)
+astro.seurat_clean2_RawDGE       <- GetAssayData(astro.seurat_clean2, slot = "counts")
+
+#B. create "gene metadata"
+astro.seurat_clean2_RawDGE.gene_metadata               <- as.data.frame(as.matrix(rownames(astro.seurat_clean2_RawDGE)))
+rownames(astro.seurat_clean2_RawDGE.gene_metadata)     <- rownames(astro.seurat_clean2_RawDGE)
+colnames(astro.seurat_clean2_RawDGE.gene_metadata)     <- "gene_short_name"
+
+#C. cell metadata (ensure CBCs match order of the RawDGE)
+tha.celltype.infections.summary_astrocytes_CLEAN2 <-
+   tha.celltype.infections.summary_astrocytes_CLEAN2 %>%
+   dplyr::slice(base::match(colnames(astro.seurat_clean2_RawDGE), CBC))
+
+rownames(tha.celltype.infections.summary_astrocytes_CLEAN2) <- tha.celltype.infections.summary_astrocytes_CLEAN2$CBC
+
+#D. create and save monocle object
+ThaAstrocyteMonocle  <- new_cell_data_set(expression_data = astro.seurat_clean2_RawDGE, 
+                                          cell_metadata =   tha.celltype.infections.summary_astrocytes_CLEAN2, 
+                                          gene_metadata =   astro.seurat_clean2_RawDGE.gene_metadata)
+
+saveRDS(object = ThaAstrocyteMonocle, file = paste0(pseudotime.data.path, "ThaAstrocyteMonocle.RDS"))
+####
+
+
+```
+
+
+#3. Process Monocle: Pseudotime
+```{r define plot path, echo=FALSE}
+
+###load and process monocle3 object
+ThaAstrocyteMonocle <- readRDS(file = paste0(pseudotime.data.path, "ThaAstrocyteMonocle.RDS"))
+
+set.seed(1)
+num_dim_choice = 12
+alignment_k_choice = 15
+
+#A. Processing and PCA analysis
+ThaAstrocyteMonocle_Processed   <- monocle3::preprocess_cds(ThaAstrocyteMonocle, method = "PCA", num_dim = num_dim_choice)
+
+#Scree plot
+pc_scree_plot       <- plot_pc_variance_explained(ThaAstrocyteMonocle_Processed)
+pca_matrix          <- reducedDim(ThaAstrocyteMonocle_Processed, type = "PCA")  # Extract PCA results
+pca_gene_scores     <- ThaAstrocyteMonocle_Processed@reduce_dim_aux$PCA@listData$model@listData$svd_v #PC 1 loads for genes associated with nuclear RNAs
+pca_matrix_filtered <- pca_matrix[, -c(1,8:12)] #exclude PC1 (nuclear) and other PCs that explain little variance (PCs 8-12)
+reducedDim(ThaAstrocyteMonocle_Processed, type = "PCA") <- pca_matrix_filtered #push all other PCs back into the monocle3 object
+
+#B. All Other Monocle3 Processing Functions
+ThaAstrocyteMonocle_Processed   <- monocle3::align_cds(cds = ThaAstrocyteMonocle_Processed , preprocess_method = "PCA", alignment_k = alignment_k_choice, alignment_group = "infected")
+ThaAstrocyteMonocle_Processed   <- monocle3::reduce_dimension(cds = ThaAstrocyteMonocle_Processed , reduction_method = "UMAP", preprocess_method = "Aligned")
+ThaAstrocyteMonocle_Processed   <- monocle3::cluster_cells(cds = ThaAstrocyteMonocle_Processed , reduction_method = "UMAP", cluster_method = "leiden")
+ThaAstrocyteMonocle_Processed   <- monocle3::learn_graph(cds = ThaAstrocyteMonocle_Processed )
+ThaAstrocyteMonocle_Processed   <- monocle3::order_cells(cds = ThaAstrocyteMonocle_Processed )
+
+#C. Push pseudotime scores to the metadata
+colData(ThaAstrocyteMonocle_Processed)$pseudotime        <- pseudotime(ThaAstrocyteMonocle_Processed)
+colData(ThaAstrocyteMonocle_Processed)$monocle3_clusters <- clusters(ThaAstrocyteMonocle_Processed)
+
+#D. Save Monocle3 Object
+saveRDS(object = ThaAstrocyteMonocle_Processed, file = paste0(data.save.path, "ThaAstrocyteMonocle_Processed_nd", num_dim_choice, "_ak", alignment_k_choice, ".RDS"))
+
+#E. Gene Module Discovery
+pr_graph_test_res <- graph_test(ThaAstrocyteMonocle_Processed, neighbor_graph="knn")
+pr_deg_ids        <- row.names(subset(pr_graph_test_res, q_value < 0.05))
+gene_module_df    <- find_gene_modules(ThaAstrocyteMonocle_Processed[pr_deg_ids,], resolution=1e-4)
+module_scores     <- aggregate_gene_expression(ThaAstrocyteMonocle_Processed, gene_module_df)
+
+module_scores_t <- as.data.frame(t(module_scores))  # Transpose to match cell format
+colnames(module_scores_t) <- paste0("Module_", colnames(module_scores_t))
+colData(ThaAstrocyteMonocle_Processed) <- cbind(colData(ThaAstrocyteMonocle_Processed), module_scores_t)
+
+saveRDS(object = pr_graph_test_res,  file = paste0(data.save.path, "pr_graph_test_res.RDS"))
+saveRDS(object = gene_module_df,     file = paste0(data.save.path, "gene_module_df.RDS"))
+```
+
+
+#4. Process Monocle: Pseudotime Tiles
+```{r gene modules, echo = FALSE}
+
+pseudotime.plot.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/pseudotime/"
+  
+ThaAstrocyteMonocle_Processed_MetaData_tbl <- as_tibble(as.data.frame(colData(ThaAstrocyteMonocle_Processed)))
+
+#Tile Pseudotime Values
+ThaAstrocyteMonocle_Processed_MetaData_tbl <-
+  ThaAstrocyteMonocle_Processed_MetaData_tbl %>%
+  arrange(pseudotime) %>%
+  mutate(pseudotime_ntile_10 = ntile(pseudotime, 10)) %>%
+  mutate(pseudotime_ntile_25 = ntile(pseudotime, 25)) %>%
+  mutate(pseudotime_ntile_30 = ntile(pseudotime, 30)) %>%
+  mutate(pseudotime_ntile_40 = ntile(pseudotime, 40)) %>%
+  mutate(pseudotime_ntile_50 = ntile(pseudotime, 50))
+
+#UMAP plot of pseudotime 40 tiles
+ThaAstrocyteMonocle_pseudotime_ntile_40_UMAP <-
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl, aes(x = UMAP_1, y = UMAP_2, fill = pseudotime_ntile_40))+
+  geom_point(shape = 21) +
+  scale_fill_viridis_c(option = "viridis")
+
+ggsave(filename = paste0(pseudotime.plot.path, "ThaAstrocyteMonocle_pseudotime_ntile_40_UMAP.png"), 
+       plot = ThaAstrocyteMonocle_pseudotime_ntile_40_UMAP, device = "png", width = 5, height = 5)
+
+ThaAstrocyteMonocle_pseudotime_ntile_40_UMAP_NoLegend <-
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl, aes(x = UMAP_1, y = UMAP_2, fill = pseudotime_ntile_40))+
+  geom_point(shape = 21) +
+  scale_fill_viridis_c(option = "viridis") +
+  guides(fill = "none")
+
+ggsave(filename = paste0(pseudotime.plot.path, "ThaAstrocyteMonocle_pseudotime_ntile_40_UMAP_NoLegend.png"), 
+       plot = ThaAstrocyteMonocle_pseudotime_ntile_40_UMAP_NoLegend, device = "png", width = 5, height = 5)
+
+#UMAP plot of idents
+ThaAstrocyteMonocle_Ident_UMAP <-
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl, aes(x = UMAP_1, y = UMAP_2, fill = ident))+
+  geom_point(shape = 21) +
+  scale_fill_manual(values = c(Astrocyte_color, AstrocteReactive_color))
+
+ggsave(filename = paste0(pseudotime.plot.path, "ThaAstrocyteMonocle_Ident_UMAP.png"), 
+       plot = ThaAstrocyteMonocle_Ident_UMAP, device = "png", width = 5, height = 5)
+
+ThaAstrocyteMonocle_Ident_UMAP_NoLegend <-
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl, aes(x = UMAP_1, y = UMAP_2, fill = ident))+
+  geom_point(shape = 21) +
+  scale_fill_manual(values = c(Astrocyte_color, AstrocteReactive_color))+
+  guides(fill = "none")
+
+ggsave(filename = paste0(pseudotime.plot.path, "ThaAstrocyteMonocle_Ident_UMAP_NoLegend.png"), 
+       plot = ThaAstrocyteMonocle_Ident_UMAP_NoLegend, device = "png", width = 5, height = 5)
+
+
+
+#Generate Pseudotime-summarized categorical data
+ThaAstrocyteMonocle_Processed_MetaData_tbl_PT40Summary_Ident <-
+  ThaAstrocyteMonocle_Processed_MetaData_tbl %>%
+  group_by(pseudotime_ntile_40) %>%
+  dplyr::count(ident, .drop = FALSE) %>%
+  filter(ident %in% c(0,2))
+
+ThaAstrocyteMonocle_Processed_MetaData_tbl_PT40Summary_Strain <-
+  ThaAstrocyteMonocle_Processed_MetaData_tbl %>%
+  group_by(pseudotime_ntile_40) %>%
+  dplyr::count(Strain, .drop = FALSE)
+
+ThaAstrocyteMonocle_Processed_MetaData_tbl_PT40Summary_Monocle3Clusters <-
+  ThaAstrocyteMonocle_Processed_MetaData_tbl %>%
+  group_by(pseudotime_ntile_40) %>%
+  dplyr::count(monocle3_clusters, .drop = FALSE) 
+
+
+###Stacked Bar Plots of categorical info along Pseudotime Trajectory
+#Viral Load
+PT_ntile40_ViralLoad_Ident.plot <- 
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl, aes(x = pseudotime_ntile_40, y = ViralLoad, group = pseudotime_ntile_40))+
+    geom_jitter(aes(color = ident))+
+    geom_boxplot(outlier.shape = NA, alpha = 0, color = "red", linewidth = 1)+
+    scale_color_manual(values = c(Astrocyte_color, AstrocteReactive_color))+
+    scale_x_continuous(breaks = c(0, 10, 20, 30, 35, 36, 37, 38, 39, 40))+
+    theme_bw()+
+    guides(color = "none")
+
+ggsave(filename = paste0(pseudotime.plot.path, "PT_ntile40_ViralLoad_Ident.plot.png"), 
+       plot = PT_ntile40_ViralLoad_Ident.plot, device = "png", width = 12, height = 4)
+
+#Strain
+PT_ntile40_StrainFraction_Bar.plot <- 
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl_PT40Summary_Strain, aes(x = pseudotime_ntile_40, y = n, fill = Strain))+
+    geom_bar(position="fill", stat = "identity")+
+    scale_x_continuous(breaks = c(0, 10, 20, 30, 35, 36, 37, 38, 39, 40))+
+    theme_bw()+
+    scale_fill_manual(values = c(Tha2P4M_color, Tha_color, Tha5_color))+
+    guides(fill = "none")
+
+ggsave(filename = paste0(pseudotime.plot.path, "PT_ntile40_StrainFraction_Bar.plot.png"), 
+       plot = PT_ntile40_StrainFraction_Bar.plot, device = "png", width = 12, height = 4)
+
+
+
+#IDENT (original Seural astrocyte clustering)
+PT_ntile40_IdentFraction_Bar.plot <- 
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl_PT40Summary_Ident, aes(x = pseudotime_ntile_40, y = n, fill = ident))+
+    geom_bar(position="fill", stat = "identity")+
+    scale_fill_manual(values = c(Astrocyte_color, AstrocteReactive_color))+
+    scale_x_continuous(breaks = c(0, 10, 20, 30, 35, 36, 37, 38, 39, 40))+
+    theme_bw()+
+    guides(fill = "none")
+
+ggsave(filename = paste0(pseudotime.plot.path, "PT_ntile40_IdentFraction_Bar.plot.png"), 
+       plot = PT_ntile40_IdentFraction_Bar.plot, device = "png", width = 12, height = 4)
+
+#Monocle3Clusters (de novo clustering with monocle3)
+PT_ntile40_MonocleClusterFraction_Bar.plot <- 
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl_PT40Summary_Monocle3Clusters, aes(x = pseudotime_ntile_40, y = n, fill = monocle3_clusters))+
+    geom_bar(position="fill", stat = "identity")+
+    scale_fill_manual(values = c("blue", "red"))+
+    scale_x_continuous(breaks = c(0, 10, 20, 30, 35, 36, 37, 38, 39, 40))+
+    theme_bw()+
+    guides(fill = "none")
+
+ggsave(filename = paste0(pseudotime.plot.path, "PT_ntile40_MonocleClusterFraction_Bar.plot.png"), 
+       plot = PT_ntile40_MonocleClusterFraction_Bar.plot, device = "png", width = 12, height = 4)
+
+
+
+
+#ISGScore
+PT_ntile40_ISGScore <- 
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl, aes(x = pseudotime_ntile_40, y = ISGScore, group = pseudotime_ntile_40))+
+    geom_boxplot(outlier.shape = NA)+
+    geom_jitter(aes(color = ident), alpha = 0.5)
+
+ggsave(filename = paste0(pseudotime.plot.path, "PT_ntile40_ISGScore.png"), 
+       plot = PT_ntile40_ISGScore, device = "png", width = 12, height = 4)
+
+#Modules
+PT_ntile40_Module1 <- 
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl, aes(x = pseudotime_ntile_40, y = Module_1, group = pseudotime_ntile_40))+
+    geom_boxplot(outlier.shape = NA)+
+    geom_jitter(aes(color = ident), alpha = 0.5)
+
+ggsave(filename = paste0(pseudotime.plot.path, "PT_ntile40_Module1.png"), 
+       plot = PT_ntile40_Module1, device = "png", width = 12, height = 4)
+
+
+
+PT_ntile40_Module2 <- 
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl, aes(x = pseudotime_ntile_40, y = Module_2, group = pseudotime_ntile_40))+
+    geom_boxplot(outlier.shape = NA)+
+    geom_jitter(aes(color = ident), alpha = 0.5)
+
+ggsave(filename = paste0(pseudotime.plot.path, "PT_ntile40_Module2.png"), 
+       plot = PT_ntile40_Module2, device = "png", width = 12, height = 4)
+
+
+
+PT_ntile40_Module3 <- 
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl, aes(x = pseudotime_ntile_40, y = Module_3, group = pseudotime_ntile_40))+
+    geom_boxplot(outlier.shape = NA)+
+    geom_jitter(aes(color = ident), alpha = 0.5)
+
+ggsave(filename = paste0(pseudotime.plot.path, "PT_ntile40_Module3.png"), 
+       plot = PT_ntile40_Module3, device = "png", width = 12, height = 4)
+
+
+
+PT_ntile40_Module4 <- 
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl, aes(x = pseudotime_ntile_40, y = Module_4, group = pseudotime_ntile_40))+
+    geom_boxplot(outlier.shape = NA)+
+    geom_jitter(aes(color = ident), alpha = 0.5)
+
+ggsave(filename = paste0(pseudotime.plot.path, "PT_ntile40_Module4.png"), 
+       plot = PT_ntile40_Module4, device = "png", width = 12, height = 4)
+
+
+
+PT_ntile40_Module5 <- 
+  ggplot(ThaAstrocyteMonocle_Processed_MetaData_tbl, aes(x = pseudotime_ntile_40, y = Module_5, group = pseudotime_ntile_40))+
+    geom_boxplot(outlier.shape = NA)+
+    geom_jitter(aes(color = ident), alpha = 0.5)
+
+ggsave(filename = paste0(pseudotime.plot.path, "PT_ntile40_Module5.png"), 
+       plot = PT_ntile40_Module5, device = "png", width = 12, height = 4)
+
+
+
+#Generate pseudotime-binned line plot for figure making
+n_bins <- 40
+df <- data.frame(
+  x = 1:n_bins,
+  y = rep(1, n_bins),               # constant y for a flat line
+  group = factor(1:n_bins)          # each point gets a unique group
+)
+
+# Plot using viridis discrete colors
+pseudotime_binned_heatmap_plot <-
+  ggplot(df, aes(x = x, y = y, fill = group)) +
+    geom_tile(width = 1, height = 1) +
+    scale_fill_viridis_d(option = "viridis", begin = 0, end = 1) +
+    theme_void() +
+    theme(legend.position = "none") +
+    labs(title = "Viridis Color Scale (40 Bins)")
+
+ggsave(filename = paste0(pseudotime.plot.path, "pseudotime_binned_heatmap_plot.png"), 
+       plot = pseudotime_binned_heatmap_plot, device = "png", width = 12, height = 1)
+
+```
+
+#5. Exploratory Example Plotting using Monocle3 function
+```{r echo = FALSE}
+monocle3::plot_cells(ThaAstrocyteMonocle_Processed)
+monocle3::plot_cells(ThaAstrocyteMonocle_Processed, color_cells_by = "pseudotime")
+monocle3::plot_cells(ThaAstrocyteMonocle_Processed, color_cells_by = "Strain")
+monocle3::plot_cells(ThaAstrocyteMonocle_Processed, color_cells_by = "ViralLoad", norm_method = "log")
+monocle3::plot_cells(ThaAstrocyteMonocle_Processed, color_cells_by = "Titer")
+monocle3::plot_cells(ThaAstrocyteMonocle_Processed, color_cells_by = "ident")
+
+
+```
+
+#6. Generate Pseudotime Metacells for the n=40 tiles
+```{r save metacells by pseudotime tile for all genes, echo = FALSE}
+
+#Extract the normalized DGE
+astro.seurat_clean2_NormDGE       <- GetAssayData(astro.seurat_clean2, slot = "data")
+
+#Generate a list of normalized DGEs for each of the n=40 pseudotime tiles
+Pseudotime_nTile40_DGEs <- list() #initialize list
+for(i in 1:length(unique(ThaAstrocyteMonocle_Processed_MetaData_tbl$pseudotime_ntile_40))){
+  
+  print(i)
+  name <- unique(ThaAstrocyteMonocle_Processed_MetaData_tbl$pseudotime_ntile_40)[i]
+  
+  CBCs <- 
+    ThaAstrocyteMonocle_Processed_MetaData_tbl %>%
+    filter(pseudotime_ntile_40 == i) %>%
+    pull(CBC) %>%
+    as.character()
+  
+  NormDGE <- astro.seurat_clean2_NormDGE[, CBCs, drop=FALSE]
+  
+  Pseudotime_nTile40_DGEs[[paste0("ntile_40_", i)]] <- NormDGE
+  
+}
+
+saveRDS(object = Pseudotime_nTile40_DGEs, file = paste0(pseudotime.data.path, "Pseudotime_nTile40_DGEs.RDS"))
+
+
+
+Pseudotime_nTile40_MetaCells <- as_tibble(as.data.frame(do.call(rbind, lapply(X = Pseudotime_nTile40_DGEs, FUN = Matrix::rowSums))), rownames = "Pseudotime_nTile40")
+
+Pseudotime_nTile40_MetaCells <-
+  Pseudotime_nTile40_MetaCells %>%
+  mutate(row_num = row_number()) %>%
+  mutate(cluster2_rows = case_when(row_num %in% c(38:40) ~ "yes", row_num %in% c(1:37) ~ "no")) %>%
+  select(tail(names(.), 2), everything())
+
+saveRDS(object = Pseudotime_nTile40_MetaCells, file = paste0(data.save.path, "Pseudotime_nTile40_MetaCells.RDS"))
+
+#Generate a max-normalized version
+Pseudotime_nTile40_MetaCells_MaxNormalized <- 
+  Pseudotime_nTile40_MetaCells %>%
+  mutate(across(-c(row_num, cluster2_rows, Pseudotime_nTile40), ~ . / max(.)))
+
+saveRDS(object = Pseudotime_nTile40_MetaCells_MaxNormalized, file = paste0(data.save.path, "Pseudotime_nTile40_MetaCells_MaxNormalized.RDS"))
+
+```
+
+#7. Generate Pseudotime-tile based gene plotting
+```{r pseudotime gene plotting: systematic line plots with non-normalized data, echo = FALSE}
+
+#load
+Pseudotime_nTile40_MetaCells                     <- readRDS(file = paste0(data.save.path, "Pseudotime_nTile40_MetaCells.RDS"))
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets <- readRDS(file = "/Users/arpiarsaunders/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/gene_sets/AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets.RDS")
+
+
+#plotting loop: plot every gene that is induced >lfc 1
+for(i in 1:length(AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1)){
+  
+gene <- AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1[i]
+
+print(gene)
+
+gene_baseline_mean <- 
+  Pseudotime_nTile40_MetaCells %>%
+  filter(row_num %in% c(1:36)) %>%
+  select(gene) %>%
+  pull(gene) %>%
+  mean()
+
+line.plot <-
+  ggplot(Pseudotime_nTile40_MetaCells, aes(x = row_num, y = !!sym(gene), group = 1))+
+    geom_line()+
+    geom_point(size = 2, aes(color = cluster2_rows))+
+    scale_color_manual(values = c(Astrocyte_color, AstrocteReactive_color))+
+    geom_hline(yintercept = gene_baseline_mean, linetype = "dotted")+
+    geom_vline(xintercept = 37, linetype = "dotted")+
+    ggtitle(gene)
+
+  
+  ggsave(filename = paste0(pseudotime.plot.path, "line_plots/up_cluster2/Pseudotime_nTile40_Line_", gene, ".png"), 
+       plot = line.plot, device = "png", width = 12, height = 4)
+}
+
+
+
+
+```
+
+```{r pseudotime gene plotting: kinetic-grouped line plots with normalized data, echo = FALSE}
+kinetics_grouped.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/pseudotime/processed_monocle3/kinetics_grouped_gene_sets/"
+
+kinetics.plot.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/pseudotime/line_plots/kinetic_groups/"
+#gene sets
+early_induction                   <- read.table(file = paste0(kinetics_grouped.path, "early_induction.txt"))
+induced_then_decreased            <- read.table(file = paste0(kinetics_grouped.path, "induced_then_decreased.txt"))
+induced_then_sustained            <- read.table(file = paste0(kinetics_grouped.path, "induced_then_sustained.txt"))
+late_stage                        <- read.table(file = paste0(kinetics_grouped.path, "late_stage.txt"))
+viral_load_tracking               <- read.table(file = paste0(kinetics_grouped.path, "viral_load_tracking.txt"))
+
+#read normalized data
+Pseudotime_nTile40_MetaCells_MaxNormalized <- readRDS(file = paste0(data.save.path, "Pseudotime_nTile40_MetaCells_MaxNormalized.RDS"))
+
+core.cols <- c("row_num", "cluster2_rows", "Pseudotime_nTile40")
+line.color = "black"
+vline.color = "#fec44f"
+vline.size = 2
+#Early Induction
+Pseudotime_nTile40_MetaCells_MaxNormalized_early_induction <-
+  Pseudotime_nTile40_MetaCells_MaxNormalized %>%
+  select(core.cols, unique(early_induction$V1)) %>%
+  mutate(Average = rowMeans(across(-all_of(core.cols))))
+
+Pseudotime_nTile40_MetaCells_MaxNormalized_early_induction_LONG <-
+  pivot_longer(data = Pseudotime_nTile40_MetaCells_MaxNormalized_early_induction, cols = -c(core.cols)) %>%
+  mutate(average_value = case_when(name == "Average" ~ "yes", name != "Average" ~ "no", TRUE ~ NA)) %>%
+  arrange(average_value)
+
+# early_induction_line_plot <-
+#   ggplot(Pseudotime_nTile40_MetaCells_MaxNormalized_early_induction_LONG, aes(x = row_num, y = value, group = name, color = average_value, size = average_value, alpha = average_value))+
+#     geom_line()+
+#     scale_color_manual(values = c(line.color, "red"))+
+#     scale_size_manual(values = c(1, 3))+
+#     scale_alpha_manual(values = c(0.2, 1))+
+#     geom_vline(xintercept = 37, linetype = "dotted")+
+#     scale_x_continuous(breaks = c(0, 10, 20, 30, 35, 36, 37, 38, 39, 40))+
+#     theme_bw()+
+#     guides(color = "none", size = "none", alpha = "none")+
+#     ggtitle(paste0("Early Induction (n = ", length(unique(unique(early_induction$V1))), ")"))
+
+early_induction_line_plot <- 
+  ggplot(Pseudotime_nTile40_MetaCells_MaxNormalized_early_induction_LONG) +
+    geom_line(data = filter(Pseudotime_nTile40_MetaCells_MaxNormalized_early_induction_LONG, average_value == "no"),
+            aes(x = row_num, y = value, group = name),
+            color = line.color, size = 1, alpha = 0.2) +
+    geom_line(data = filter(Pseudotime_nTile40_MetaCells_MaxNormalized_early_induction_LONG, average_value == "yes"),
+            aes(x = row_num, y = value, group = name),
+            color = "red", size = 3, alpha = 1) +
+    geom_vline(xintercept = 37, linetype = "dotted", color = vline.color, size = vline.size) +
+    scale_x_continuous(breaks = c(0, 10, 20, 30, 35, 36, 37, 38, 39, 40)) +
+    theme_bw() +
+    ggtitle(paste0("Early Induction (n = ", length(unique(early_induction$V1)), ")"))
+
+
+  
+ggsave(filename = paste0(kinetics.plot.path, "early_induction_line_plot.png"), 
+       plot = early_induction_line_plot, device = "png", width = 12, height = 4)
+
+
+#induced_then_decreased
+Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_decreased <-
+  Pseudotime_nTile40_MetaCells_MaxNormalized %>%
+  select(core.cols, unique(induced_then_decreased$V1)) %>%
+  mutate(Average = rowMeans(across(-all_of(core.cols))))
+
+Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_decreased_LONG <-
+  pivot_longer(data = Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_decreased, cols = -c(core.cols)) %>%
+  mutate(average_value = case_when(name == "Average" ~ "yes", name != "Average" ~ "no", TRUE ~ NA)) %>%
+  arrange(average_value)
+
+induced_then_decreased_line_plot <- 
+  ggplot(Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_decreased_LONG) +
+    geom_line(data = filter(Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_decreased_LONG, average_value == "no"),
+            aes(x = row_num, y = value, group = name),
+            color = line.color, size = 1, alpha = 0.2) +
+    geom_line(data = filter(Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_decreased_LONG, average_value == "yes"),
+            aes(x = row_num, y = value, group = name),
+            color = "red", size = 3, alpha = 1) +
+    geom_vline(xintercept = 37, linetype = "dotted", color = vline.color, size = vline.size) +
+    scale_x_continuous(breaks = c(0, 10, 20, 30, 35, 36, 37, 38, 39, 40)) +
+    theme_bw() +
+    ggtitle(paste0("Induced then Decreased (n = ", length(unique(unique(induced_then_decreased$V1))), ")"))
+  
+ggsave(filename = paste0(kinetics.plot.path, "induced_then_decreased_line_plot.png"), 
+       plot = induced_then_decreased_line_plot, device = "png", width = 12, height = 4)
+
+
+#induced_then_sustained
+Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_sustained <-
+  Pseudotime_nTile40_MetaCells_MaxNormalized %>%
+  select(core.cols, unique(induced_then_sustained$V1)) %>%
+  mutate(Average = rowMeans(across(-all_of(core.cols))))
+
+Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_sustained_LONG <-
+  pivot_longer(data = Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_sustained, cols = -c(core.cols))  %>%
+  mutate(average_value = case_when(name == "Average" ~ "yes", name != "Average" ~ "no", TRUE ~ NA)) %>%
+  arrange(average_value)
+
+
+induced_then_sustained_line_plot <-
+  ggplot(Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_sustained_LONG, aes(x = row_num, y = value, group = name)) +
+    geom_line(data = filter(Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_sustained_LONG, average_value == "no"),
+            aes(x = row_num, y = value, group = name),
+            color = line.color, size = 1, alpha = 0.2) +
+    geom_line(data = filter(Pseudotime_nTile40_MetaCells_MaxNormalized_induced_then_sustained_LONG, average_value == "yes"),
+            aes(x = row_num, y = value, group = name),
+            color = "red", size = 3, alpha = 1) +
+    geom_vline(xintercept = 37, linetype = "dotted", color = vline.color, size = vline.size) +
+    scale_x_continuous(breaks = c(0, 10, 20, 30, 35, 36, 37, 38, 39, 40)) +
+    theme_bw() +
+    ggtitle(paste0("Induced then Sustained (n = ", length(unique(unique(induced_then_sustained$V1))), ")"))
+  
+ggsave(filename = paste0(kinetics.plot.path, "induced_then_sustained_line_plot.png"), 
+       plot = induced_then_sustained_line_plot, device = "png", width = 12, height = 4)
+
+
+
+
+#late_stage
+Pseudotime_nTile40_MetaCells_MaxNormalized_late_stage <-
+  Pseudotime_nTile40_MetaCells_MaxNormalized %>%
+  select(core.cols, unique(late_stage$V1)) %>%
+  mutate(Average = rowMeans(across(-all_of(core.cols))))
+
+Pseudotime_nTile40_MetaCells_MaxNormalized_late_stage_LONG <-
+  pivot_longer(data = Pseudotime_nTile40_MetaCells_MaxNormalized_late_stage, cols = -c(core.cols))  %>%
+  mutate(average_value = case_when(name == "Average" ~ "yes", name != "Average" ~ "no", TRUE ~ NA)) %>%
+  arrange(average_value)
+
+
+late_stage_line_plot <-
+  ggplot(Pseudotime_nTile40_MetaCells_MaxNormalized_late_stage_LONG, aes(x = row_num, y = value, group = name))+
+    geom_line(data = filter(Pseudotime_nTile40_MetaCells_MaxNormalized_late_stage_LONG, average_value == "no"),
+            aes(x = row_num, y = value, group = name),
+            color = line.color, size = 1, alpha = 0.2) +
+    geom_line(data = filter(Pseudotime_nTile40_MetaCells_MaxNormalized_late_stage_LONG, average_value == "yes"),
+            aes(x = row_num, y = value, group = name),
+            color = "red", size = 3, alpha = 1) +
+    geom_vline(xintercept = 37, linetype = "dotted", color = vline.color, size = vline.size) +
+    scale_x_continuous(breaks = c(0, 10, 20, 30, 35, 36, 37, 38, 39, 40)) +
+    theme_bw() +
+    ggtitle(paste0("Late-stage Induction (n = ", length(unique(unique(late_stage$V1))), ")"))
+  
+ggsave(filename = paste0(kinetics.plot.path, "late_stage_line_plot.png"), 
+       plot = late_stage_line_plot, device = "png", width = 12, height = 4)
+
+
+
+
+#viral_load_tracking
+Pseudotime_nTile40_MetaCells_MaxNormalized_viral_load_tracking <-
+  Pseudotime_nTile40_MetaCells_MaxNormalized %>%
+  select(core.cols, unique(viral_load_tracking$V1)) %>%
+  mutate(Average = rowMeans(across(-all_of(core.cols))))
+
+Pseudotime_nTile40_MetaCells_MaxNormalized_viral_load_tracking_LONG <-
+  pivot_longer(data = Pseudotime_nTile40_MetaCells_MaxNormalized_viral_load_tracking, cols = -c(core.cols)) %>%
+  mutate(average_value = case_when(name == "Average" ~ "yes", name != "Average" ~ "no", TRUE ~ NA)) %>%
+  arrange(average_value)
+
+
+viral_load_tracking_line_plot <-
+  ggplot(Pseudotime_nTile40_MetaCells_MaxNormalized_viral_load_tracking_LONG, aes(x = row_num, y = value, group = name))+
+    geom_line(data = filter(Pseudotime_nTile40_MetaCells_MaxNormalized_viral_load_tracking_LONG, average_value == "no"),
+            aes(x = row_num, y = value, group = name),
+            color = line.color, size = 1, alpha = 0.2) +
+    geom_line(data = filter(Pseudotime_nTile40_MetaCells_MaxNormalized_viral_load_tracking_LONG, average_value == "yes"),
+            aes(x = row_num, y = value, group = name),
+            color = "red", size = 3, alpha = 1) +
+    geom_vline(xintercept = 37, linetype = "dotted", color = vline.color, size = vline.size) +
+    scale_x_continuous(breaks = c(0, 10, 20, 30, 35, 36, 37, 38, 39, 40)) +
+    theme_bw() +
+    ggtitle(paste0("Progressive (n = ", length(unique(unique(viral_load_tracking$V1))), ")"))
+  
+ggsave(filename = paste0(kinetics.plot.path, "viral_load_tracking_line_plot.png"), 
+       plot = viral_load_tracking_line_plot, device = "png", width = 12, height = 4)
+```

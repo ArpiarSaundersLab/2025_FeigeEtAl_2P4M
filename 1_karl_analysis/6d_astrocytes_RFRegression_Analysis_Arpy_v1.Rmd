@@ -1,0 +1,422 @@
+---
+title: "RF Regression Analysis"
+author: "Arpy"
+date: '2025-02-25'
+output: html_document
+---
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(dplyr)
+library(Seurat)
+library(Matrix)
+library(viridis)
+library(randomForest)
+library(ranger)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load Data
+```{r load data, echo=FALSE}
+
+rf.save.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/random_forest/6_astrocytes/"
+
+#Ranger
+#de_62
+rf.Neuron.model.de_62                   <- readRDS(file = paste0(rf.save.path, "rf.Neuron.model.de_62_ranger.RDS"))
+ImpData_rf.Neuron.model.de_62           <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Neuron.model.de_62_ranger.RDS"))
+
+rf.AllAstrocyte.model.de_62             <- readRDS(file = paste0(rf.save.path, "rf.AllAstrocyte.model.de_62_ranger.RDS"))
+ImpData_rf.AllAstrocyte.model.de_62     <- readRDS(file = paste0(rf.save.path, "ImpData_rf.AllAstrocyte.model.de_62_ranger.RDS"))
+
+rf.Astro_Cluster1.model.de_62           <- readRDS(file = paste0(rf.save.path, "rf.Astro_Cluster1.model.de_62_ranger.RDS"))
+ImpData_rf.Astro_Cluster1.model.de_62   <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster1.model.de_62_ranger.RDS"))
+
+rf.Astro_Cluster2.model.de_62            <- readRDS(file = paste0(rf.save.path, "rf.Astro_Cluster2.model.de_62_ranger.RDS"))
+ImpData_rf.Astro_Cluster2.model.de_62    <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster2.model.de_62_ranger.RDS"))
+
+#all_genes
+rf.Neuron.model.all_genes                <- readRDS(file = paste0(rf.save.path, "rf.Neuron.model.all_genes_ranger.RDS"))
+ImpData_rf.Neuron.model.all_genes        <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Neuron.model.all_genes_ranger.RDS"))
+
+rf.AllAstrocyte.model.all_genes          <- readRDS(file = paste0(rf.save.path, "rf.AllAstrocyte.model.all_genes_ranger.RDS"))
+ImpData_rf.AllAstrocyte.model.all_genes  <- readRDS(file = paste0(rf.save.path, "ImpData_rf.AllAstrocyte.model.all_genes_ranger.RDS"))
+
+rf.Astro_Cluster1.model.all_genes         <- readRDS(file = paste0(rf.save.path, "rf.Astro_Cluster1.model.all_genes_ranger.RDS"))
+ImpData_rf.Astro_Cluster1.model.all_genes <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster1.model.all_genes_ranger.RDS"))
+
+rf.Astro_Cluster2.model.all_genes         <- readRDS(file = paste0(rf.save.path, "rf.Astro_Cluster2.model.all_genes_ranger.RDS"))
+ImpData_rf.Astro_Cluster2.model.all_genes <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster2.model.all_genes_ranger.RDS"))
+
+
+#randomForest
+#de_62 
+RF.rf.Neuron.model.de_62                   <- readRDS(file = paste0(rf.save.path, "rf.Neuron.model.de_62.RDS"))
+RF.ImpData_rf.Neuron.model.de_62           <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Neuron.model.de_62.RDS"))
+
+RF.rf.AllAstrocyte.model.de_62             <- readRDS(file = paste0(rf.save.path, "rf.AllAstrocyte.model.de_62.RDS"))
+RF.ImpData_rf.AllAstrocyte.model.de_62     <- readRDS(file = paste0(rf.save.path, "ImpData_rf.AllAstrocyte.model.de_62.RDS"))
+
+RF.rf.Astro_Cluster1.model.de_62           <- readRDS(file = paste0(rf.save.path, "rf.Astro_Cluster1.model.de_62.RDS"))
+RF.ImpData_rf.Astro_Cluster1.model.de_62   <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster1.model.de_62.RDS"))
+
+RF.rf.Astro_Cluster2.model.de_62            <- readRDS(file = paste0(rf.save.path, "rf.Astro_Cluster2.model.de_62.RDS"))
+RF.ImpData_rf.Astro_Cluster2.model.de_62    <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster2.model.de_62.RDS"))
+
+#all_genes
+RF.rf.Neuron.model.all_genes                   <- readRDS(file = paste0(rf.save.path, "rf.Neuron.model.all_genes.RDS"))
+RF.ImpData_rf.Neuron.model.all_genes           <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Neuron.model.all_genes.RDS"))
+
+RF.rf.AllAstrocyte.model.all_genes             <- readRDS(file = paste0(rf.save.path, "rf.AllAstrocyte.model.all_genes.RDS"))
+RF.ImpData_rf.AllAstrocyte.model.all_genes     <- readRDS(file = paste0(rf.save.path, "ImpData_rf.AllAstrocyte.model.all_genes.RDS"))
+
+RF.rf.Astro_Cluster1.model.all_genes           <- readRDS(file = paste0(rf.save.path, "rf.Astro_Cluster1.model.all_genes.RDS"))
+RF.ImpData_rf.Astro_Cluster1.model.all_genes   <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster1.model.all_genes.RDS"))
+
+RF.rf.Astro_Cluster2.model.all_genes            <- readRDS(file = paste0(rf.save.path, "rf.Astro_Cluster2.model.all_genes.RDS"))
+RF.ImpData_rf.Astro_Cluster2.model.all_genes    <- readRDS(file = paste0(rf.save.path, "ImpData_rf.Astro_Cluster2.model.all_genes.RDS"))
+```
+
+#1. Pre-Process RF (randomForest and ranger) Results
+```{r preprocess rf, echo = FALSE}
+#Ranger
+#62 genes
+ImpData_rf.Neuron.model.de_62_tbl         <- as_tibble(ImpData_rf.Neuron.model.de_62)
+ImpData_rf.AllAstrocyte.model.de_62_tbl   <- as_tibble(ImpData_rf.AllAstrocyte.model.de_62)
+ImpData_rf.Astro_Cluster1.model.de_62_tbl <- as_tibble(ImpData_rf.Astro_Cluster1.model.de_62)
+ImpData_rf.Astro_Cluster2.model.de_62_tbl <- as_tibble(ImpData_rf.Astro_Cluster2.model.de_62)
+
+#all genes
+ImpData_rf.Neuron.model.all_genes_tbl         <- as_tibble(ImpData_rf.Neuron.model.all_genes, rownames = "Gene")
+ImpData_rf.AllAstrocyte.model.all_genes_tbl   <- as_tibble(ImpData_rf.AllAstrocyte.model.all_genes, rownames = "Gene")
+ImpData_rf.Astro_Cluster1.model.all_genes_tbl <- as_tibble(ImpData_rf.Astro_Cluster1.model.all_genes, rownames = "Gene")
+ImpData_rf.Astro_Cluster2.model.all_genes_tbl <- as_tibble(ImpData_rf.Astro_Cluster2.model.all_genes, rownames = "Gene")
+
+#randomForest
+#62 genes
+RF.ImpData_rf.Neuron.model.de_62_tbl         <- as_tibble(RF.ImpData_rf.Neuron.model.de_62)
+RF.ImpData_rf.AllAstrocyte.model.de_62_tbl   <- as_tibble(RF.ImpData_rf.AllAstrocyte.model.de_62)
+RF.ImpData_rf.Astro_Cluster1.model.de_62_tbl <- as_tibble(RF.ImpData_rf.Astro_Cluster1.model.de_62)
+RF.ImpData_rf.Astro_Cluster2.model.de_62_tbl <- as_tibble(RF.ImpData_rf.Astro_Cluster2.model.de_62)
+
+#all_genes
+RF.ImpData_rf.Neuron.model.all_genes_tbl         <- as_tibble(RF.ImpData_rf.Neuron.model.all_genes)
+RF.ImpData_rf.AllAstrocyte.model.all_genes_tbl   <- as_tibble(RF.ImpData_rf.AllAstrocyte.model.all_genes)
+RF.ImpData_rf.Astro_Cluster1.model.all_genes_tbl <- as_tibble(RF.ImpData_rf.Astro_Cluster1.model.all_genes)
+RF.ImpData_rf.Astro_Cluster2.model.all_genes_tbl <- as_tibble(RF.ImpData_rf.Astro_Cluster2.model.all_genes)
+
+#Preprocess
+#genes_to_label     <- c("DYNLL1", "DYNLL2", "HSP90AA1", "HSP90AB1", "HSPA8")
+#genes_to_label     <- c("DYNLL1", "DYNLL2", "HSPA8")
+genes_to_label      <- c("DYNLL1")
+column_order_ranger <- c("Importance", "Gene", "Condition", "GeneSet", "ImportanceRank", "Label")
+column_order_rf     <- c("Importance", "NodePurity", "Gene", "Condition", "GeneSet", "ImportanceRank", "Label")
+
+#ranger
+#DE_62
+ImpData_rf.Neuron.model.de_62_tbl <-
+  ImpData_rf.Neuron.model.de_62_tbl %>%
+  setNames(c("Importance", "Gene")) %>%
+  mutate(Condition = "Neuron", GeneSet = "DE_62") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_ranger))
+
+ImpData_rf.AllAstrocyte.model.de_62_tbl <-
+  ImpData_rf.AllAstrocyte.model.de_62_tbl %>%
+  setNames(c("Importance", "Gene")) %>%
+  mutate(Condition = "Astrocyte", GeneSet = "DE_62") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_ranger))
+
+ImpData_rf.Astro_Cluster1.model.de_62_tbl <-
+  ImpData_rf.Astro_Cluster1.model.de_62_tbl %>%
+  setNames(c("Importance", "Gene")) %>%
+  mutate(Condition = "Cluster1", GeneSet = "DE_62") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_ranger))
+
+ImpData_rf.Astro_Cluster2.model.de_62_tbl <-
+  ImpData_rf.Astro_Cluster2.model.de_62_tbl %>%
+  setNames(c("Importance", "Gene")) %>%
+  mutate(Condition = "Cluster2", GeneSet = "DE_62") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_ranger))
+
+#all_genes
+ImpData_rf.Neuron.model.all_genes_tbl <-
+  ImpData_rf.Neuron.model.all_genes_tbl %>%
+  setNames(c("Gene", "Importance")) %>%
+  mutate(Condition = "Neuron", GeneSet = "ALL_GENES") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_ranger))
+
+ImpData_rf.AllAstrocyte.model.all_genes_tbl <-
+  ImpData_rf.AllAstrocyte.model.all_genes_tbl %>%
+  setNames(c("Gene", "Importance")) %>%
+  mutate(Condition = "Astrocyte", GeneSet = "ALL_GENES") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_ranger))
+
+ImpData_rf.Astro_Cluster1.model.all_genes_tbl <-
+  ImpData_rf.Astro_Cluster1.model.all_genes_tbl %>%
+  setNames(c("Gene", "Importance")) %>%
+  mutate(Condition = "Cluster1", GeneSet = "ALL_GENES") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_ranger))
+
+ImpData_rf.Astro_Cluster2.model.all_genes_tbl <-
+  ImpData_rf.Astro_Cluster2.model.all_genes_tbl %>%
+  setNames(c("Gene", "Importance")) %>%
+  mutate(Condition = "Cluster2", GeneSet = "ALL_GENES") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_ranger))
+
+ImpData_rf_Aggregated <- bind_rows(ImpData_rf.Neuron.model.de_62_tbl,
+                                   ImpData_rf.AllAstrocyte.model.de_62_tbl,
+                                   ImpData_rf.Astro_Cluster1.model.de_62_tbl,
+                                   ImpData_rf.Astro_Cluster2.model.de_62_tbl,
+                                   ImpData_rf.Neuron.model.all_genes_tbl,
+                                   ImpData_rf.AllAstrocyte.model.all_genes_tbl,
+                                   ImpData_rf.Astro_Cluster1.model.all_genes_tbl,
+                                   ImpData_rf.Astro_Cluster2.model.all_genes_tbl)
+
+ImpData_rf_Aggregated <-
+  ImpData_rf_Aggregated %>%
+  mutate(Condition = factor(Condition, levels = c("Neuron", "Cluster1", "Cluster2", "Astrocyte")))
+
+#Save
+saveRDS(object = ImpData_rf_Aggregated, file = paste0(rf.save.path, "ImpData_rf_Aggregated.RDS"))
+
+#randomForest
+#DE_62
+RF.ImpData_rf.Neuron.model.de_62_tbl <-
+  RF.ImpData_rf.Neuron.model.de_62_tbl %>%
+  setNames(c("Importance", "NodePurity", "Gene")) %>%
+  mutate(Condition = "Neuron", GeneSet = "DE_62") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_rf))
+
+RF.ImpData_rf.AllAstrocyte.model.de_62_tbl <-
+  RF.ImpData_rf.AllAstrocyte.model.de_62_tbl %>%
+  setNames(c("Importance", "NodePurity", "Gene")) %>%
+  mutate(Condition = "Astrocyte", GeneSet = "DE_62") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_rf))
+
+RF.ImpData_rf.Astro_Cluster1.model.de_62_tbl <-
+  RF.ImpData_rf.Astro_Cluster1.model.de_62_tbl %>%
+  setNames(c("Importance", "NodePurity", "Gene")) %>%
+  mutate(Condition = "Cluster1", GeneSet = "DE_62") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_rf))
+
+RF.ImpData_rf.Astro_Cluster2.model.de_62_tbl <-
+  RF.ImpData_rf.Astro_Cluster2.model.de_62_tbl %>%
+  setNames(c("Importance", "NodePurity", "Gene")) %>%
+  mutate(Condition = "Cluster2", GeneSet = "DE_62") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_rf))
+
+#all_genes
+RF.ImpData_rf.Neuron.model.all_genes_tbl <-
+  RF.ImpData_rf.Neuron.model.all_genes_tbl %>%
+  setNames(c("Importance", "NodePurity", "Gene")) %>%
+  mutate(Condition = "Neuron", GeneSet = "ALL_GENES") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_rf))
+
+RF.ImpData_rf.AllAstrocyte.model.all_genes_tbl <-
+  RF.ImpData_rf.AllAstrocyte.model.all_genes_tbl %>%
+  setNames(c("Importance", "NodePurity", "Gene")) %>%
+  mutate(Condition = "Astrocyte", GeneSet = "ALL_GENES") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_rf))
+
+RF.ImpData_rf.Astro_Cluster1.model.all_genes_tbl <-
+  RF.ImpData_rf.Astro_Cluster1.model.all_genes_tbl %>%
+  setNames(c("Importance", "NodePurity", "Gene")) %>%
+  mutate(Condition = "Cluster1", GeneSet = "ALL_GENES") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_rf))
+
+RF.ImpData_rf.Astro_Cluster2.model.all_genes_tbl <-
+  RF.ImpData_rf.Astro_Cluster2.model.all_genes_tbl %>%
+  setNames(c("Importance", "NodePurity", "Gene")) %>%
+  mutate(Condition = "Cluster2", GeneSet = "ALL_GENES") %>%
+  arrange(desc(Importance)) %>%
+  mutate(ImportanceRank = row_number()) %>%
+  mutate(Label = case_when(Gene %in% genes_to_label ~ "Label", TRUE ~ "NoLabel")) %>%
+  select(all_of(column_order_rf))
+
+
+RF.ImpData_rf_Aggregated <- bind_rows(RF.ImpData_rf.Neuron.model.de_62_tbl,
+                                      RF.ImpData_rf.AllAstrocyte.model.de_62_tbl,
+                                      RF.ImpData_rf.Astro_Cluster1.model.de_62_tbl,
+                                      RF.ImpData_rf.Astro_Cluster2.model.de_62_tbl,
+                                      RF.ImpData_rf.Neuron.model.all_genes_tbl,
+                                      RF.ImpData_rf.AllAstrocyte.model.all_genes_tbl,
+                                      RF.ImpData_rf.Astro_Cluster1.model.all_genes_tbl,
+                                      RF.ImpData_rf.Astro_Cluster2.model.all_genes_tbl)
+
+RF.ImpData_rf_Aggregated <-
+  RF.ImpData_rf_Aggregated %>%
+  mutate(Condition = factor(Condition, levels = c("Neuron", "Cluster1", "Cluster2", "Astrocyte")))
+
+#Save
+saveRDS(object = RF.ImpData_rf_Aggregated , file = paste0(rf.save.path, "RF.ImpData_rf_Aggregated.RDS"))
+
+
+```
+
+#3. Plotting RF Regression Results
+```{r adjust factor levels, echo = FALSE}
+rf.plot.save.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/random_forest/"
+
+#ranger
+ImpData_rf_Aggregated <- readRDS(file = paste0(rf.save.path, "ImpData_rf_Aggregated.RDS"))
+
+ImpData_rf_Aggregated_3Conditions_ALL_GENES <-
+  ImpData_rf_Aggregated %>%
+  filter(Condition %in% c("Neuron", "Cluster1", "Cluster2")) %>%
+  filter(GeneSet == "ALL_GENES") %>%
+  arrange(desc(Label))
+
+ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_label <- ggplot(ImpData_rf_Aggregated_3Conditions_ALL_GENES, aes(x = ImportanceRank, y = Importance, color = Label, size = Importance))+
+                                                                    geom_point()+
+                                                                    facet_wrap(. ~ Condition)+
+                                                                    scale_x_continuous(trans = "log10")+
+                                                                    scale_color_manual(values = c("red", "black"))+
+                                                                    theme_bw()
+                                                                      
+
+ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_Nolabel <- ggplot(ImpData_rf_Aggregated_3Conditions_ALL_GENES, aes(x = ImportanceRank, y = Importance, color = Label, size = Importance))+
+                                                                      geom_point()+
+                                                                      facet_wrap(. ~ Condition)+
+                                                                      scale_x_continuous(trans = "log10")+
+                                                                      scale_color_manual(values = c("red", "black"))+
+                                                                      theme_bw()+
+                                                                      theme(strip.text = element_blank())+
+                                                                      guides(size = "none", color = "none")
+
+
+ggsave(filename = paste0(rf.plot.save.path, "ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_label.png"), 
+       plot = ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_label, device = "png", width = 12, height = 4)
+
+ggsave(filename = paste0(rf.plot.save.path, "ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_Nolabel.png"), 
+       plot = ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_Nolabel, device = "png", width = 12, height = 4)
+
+
+
+
+
+#randomForest
+RF.ImpData_rf_Aggregated <- readRDS(file = paste0(rf.save.path, "RF.ImpData_rf_Aggregated.RDS"))
+
+RF.ImpData_rf_Aggregated_DE_62_3Conditions <-
+  RF.ImpData_rf_Aggregated %>%
+  filter(Condition %in% c("Neuron", "Cluster1", "Cluster2"))%>%
+  filter(GeneSet == "DE_62") %>%
+  arrange(desc(Label))
+
+
+RF.ImpData_rf_Aggregated_ALL_GENES_3Conditions <-
+  RF.ImpData_rf_Aggregated %>%
+  filter(Condition %in% c("Neuron", "Cluster1", "Cluster2"))%>%
+  filter(GeneSet == "ALL_GENES") %>%
+  arrange(desc(Label))
+
+RF.ImpData_rf_Aggregated_Plot_DE_62_3Conditions_label <- ggplot(RF.ImpData_rf_Aggregated_DE_62_3Conditions, aes(x = ImportanceRank, y = Importance, size = NodePurity, color = Label))+
+                                                                    geom_point()+
+                                                                    facet_wrap(. ~ Condition)+
+                                                                    scale_x_continuous(trans = "log10")+
+                                                                    scale_size(range = c(0.25, 10))+
+                                                                    scale_color_manual(values = c("red", "black"))+
+                                                                    theme(strip.text = element_blank())+
+                                                                    theme_bw()
+
+RF.ImpData_rf_Aggregated_Plot_DE_62_3Conditions_Nolabel <- ggplot(RF.ImpData_rf_Aggregated_DE_62_3Conditions, aes(x = ImportanceRank, y = Importance, size = NodePurity, color = Label))+
+                                                                      geom_point()+
+                                                                      facet_wrap(. ~ Condition)+
+                                                                      scale_x_continuous(trans = "log10")+
+                                                                      scale_size(range = c(0.25, 10))+
+                                                                      scale_color_manual(values = c("red", "black"))+
+                                                                      theme_bw()+
+                                                                      theme(strip.text = element_blank())+
+                                                                      guides(size = "none", color = "none")
+
+
+ggsave(filename = paste0(rf.plot.save.path, "RF.ImpData_rf_Aggregated_Plot_DE_62_3Conditions_label.png"), 
+       plot = RF.ImpData_rf_Aggregated_Plot_DE_62_3Conditions_label, device = "png", width = 12, height = 4)
+
+ggsave(filename = paste0(rf.plot.save.path, "RF.ImpData_rf_Aggregated_Plot_DE_62_3Conditions_Nolabel.png"), 
+       plot = RF.ImpData_rf_Aggregated_Plot_DE_62_3Conditions_Nolabel, device = "png", width = 12, height = 4)
+
+
+
+
+
+
+RF.ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_label <- ggplot(RF.ImpData_rf_Aggregated_ALL_GENES_3Conditions, aes(x = ImportanceRank, y = Importance, size = NodePurity, color = Label))+
+                                                                    geom_point()+
+                                                                    facet_wrap(. ~ Condition)+
+                                                                    scale_x_continuous(trans = "log10")+
+                                                                    scale_size(range = c(0.25, 10))+
+                                                                    scale_color_manual(values = c("red", "black"))+
+                                                                    theme(strip.text = element_blank())+
+                                                                    theme_bw()
+
+RF.ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_Nolabel <- ggplot(RF.ImpData_rf_Aggregated_ALL_GENES_3Conditions, aes(x = ImportanceRank, y = Importance, size = NodePurity, color = Label))+
+                                                                      geom_point()+
+                                                                      facet_wrap(. ~ Condition)+
+                                                                      scale_x_continuous(trans = "log10")+
+                                                                      scale_size(range = c(0.25, 10))+
+                                                                      scale_color_manual(values = c("red", "black"))+
+                                                                      theme_bw()+
+                                                                      theme(strip.text = element_blank())+
+                                                                      guides(size = "none", color = "none")
+
+
+ggsave(filename = paste0(rf.plot.save.path, "RF.ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_label.png"), 
+       plot = RF.ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_label, device = "png", width = 12, height = 4)
+
+ggsave(filename = paste0(rf.plot.save.path, "RF.ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_Nolabel.png"), 
+       plot = RF.ImpData_rf_Aggregated_Plot_ALL_GENES_3Conditions_Nolabel, device = "png", width = 12, height = 4)
+
+
+
+
+```

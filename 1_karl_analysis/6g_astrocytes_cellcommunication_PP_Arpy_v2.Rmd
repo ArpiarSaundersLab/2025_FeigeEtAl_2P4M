@@ -1,0 +1,527 @@
+---
+title: "Pre-processing of Tha scRNA-seq data for Cellular Interaction Analysis using Liana or CellPhoneDB"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+
+```{r libraries and functions, message=FALSE}
+
+library(Seurat)
+library(tidyverse)
+library(dplyr)
+library(magrittr)
+library(liana)
+library(circlize)
+library(Matrix)
+
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load Data
+```{r load data, echo=FALSE}
+
+###Load
+#infection summary for astrocytes CLEAN2 version has just the CBCs included in Clusters 0 and 2 and "outliers' based on UMAP space removed (CLEAN2 file generated in 6b_astrocytes_Analysis_Arpy_v3)
+tha.celltype.infections.summary_astrocytes_CLEAN2 <- readRDS(file = tha.celltype.infections.summary_astrocytes_CLEAN2.path)
+tha.celltype.infections.summary                   <- readRDS(tha.celltype.infections.summary.path)
+
+#Seurat objects for Tha 
+tha.seurat                                    <- read_rds(tha.seurat.path)
+astro.seurat                                  <- readRDS(file = astro.seurat.path)
+
+#DE
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2            <- readRDS(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.path)
+NPH_Cluster2Like_MetaCellExpression_zscore_thresh_4.5 <- readRDS(file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/metacells/NPH_Cluster2Like_MetaCellExpression_zscore_thresh_4.5.RDS")
+
+
+```
+
+#1. Preprocess Seurat for Liana & CPDB
+```{r liana with astrocytes only, echo=FALSE}
+###1. Prepare Astrocyte seurat objects
+#1A. astro_seurat_CLEAN2
+tha.celltype.infections.summary_astrocytes_CLEAN2$CBC
+Idents(astro.seurat) <- "seurat_clusters"
+astro.seurat_CLEAN2   <- subset(x = astro.seurat, cells = tha.celltype.infections.summary_astrocytes_CLEAN2$CBC)
+
+#1B. Full seurat ojbect
+tha.celltype.infections.summary_astrocytes_CLEAN2_temp <-
+  tha.celltype.infections.summary_astrocytes_CLEAN2 %>%
+  dplyr::select(CBC, ident)
+
+tha.celltype.infections.summary_AstrocyteClusters <- left_join(x = tha.celltype.infections.summary, y = tha.celltype.infections.summary_astrocytes_CLEAN2_temp, by = "CBC")
+
+#remove astrocytes not in cluster 0 or 2 and make the CoarseCellType_AstroType column
+tha.celltype.infections.summary_AstrocyteClusters_clean <-
+  tha.celltype.infections.summary_AstrocyteClusters %>%
+  filter(CoarseCellType == "Astrocyte" & ident %in% c("0", "2") | CoarseCellType %in% c("hNSC", "Microglia", "Mitotic", "Neuron")) %>%
+  mutate(CoarseCellType_AstroType = case_when(CoarseCellType == "hNSC" ~ "hNSC", 
+                                              CoarseCellType == "Microglia" ~ "Microglia",
+                                              CoarseCellType == "Mitotic" ~ "Mitotic",
+                                              CoarseCellType == "Neuron" ~ "Neuron",
+                                              ident == "0" ~ "Astro_0",
+                                              ident == "2" ~ "Astro_2",
+                                              TRUE ~ "Other"))
+
+#subset the Tha seurat object
+tha.seurat_CLEAN2 <- subset(x = tha.seurat, cells = tha.celltype.infections.summary_AstrocyteClusters_clean$CBC)
+
+#make new metadata with cell type info, including the CoarseCellType_AstroType column
+tha.celltype.infections.summary_AstrocyteClusters_clean_temp <-
+  tha.celltype.infections.summary_AstrocyteClusters_clean %>%
+  select(CBC, CellType, CoarseCellType, CoarseCellType_AstroType)
+
+tha.seurat_CLEAN2_metadata.orig          <- as_tibble(tha.seurat_CLEAN2@meta.data, rownames = "CBC")
+tha.seurat_CLEAN2_metadata.new           <- as.data.frame( left_join(x = tha.seurat_CLEAN2_metadata.orig, y = tha.celltype.infections.summary_AstrocyteClusters_clean_temp, by = "CBC"))
+tha.seurat_CLEAN2_metadata.new           <- tha.seurat_CLEAN2_metadata.new %>% select(-CBC)
+rownames(tha.seurat_CLEAN2_metadata.new) <- tha.seurat_CLEAN2_metadata.orig$CBC
+
+#assign new metadata
+tha.seurat_CLEAN2@meta.data <- tha.seurat_CLEAN2_metadata.new
+```
+
+#2. Run Liana
+```{r liana, echo=FALSE}
+#Astrocytes
+Idents(astro.seurat_CLEAN2)       <- "seurat_clusters"
+liana_astro.seurat_CLEAN2         <- liana_wrap(astro.seurat_CLEAN2)
+
+#All Cell Types
+Idents(tha.seurat_CLEAN2)   <- "CoarseCellType_AstroType"
+liana.seurat_CLEAN2         <- liana_wrap(tha.seurat_CLEAN2)
+
+liana_astro.seurat_CLEAN2 %>% dplyr::glimpse()
+liana.seurat_CLEAN2       %>% dplyr::glimpse()
+
+
+#3. Aggregate Liana results
+liana_astro.seurat_CLEAN2 <- liana_astro.seurat_CLEAN2 %>% liana_aggregate()
+liana.seurat_CLEAN2       <- liana.seurat_CLEAN2       %>% liana_aggregate()
+
+#4. Save results
+saveRDS(object = liana_astro.seurat_CLEAN2, file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/cell_communication/liana_astro.seurat_CLEAN2.RDS")
+saveRDS(object = liana.seurat_CLEAN2,       file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/cell_communication/liana.seurat_CLEAN2.RDS")
+
+```
+
+#3. Liana Exploration/Plotting 
+This is rough; not currently focused on this analysis 24/8/24
+```{r Liana plotting, echo=FALSE}
+
+liana_astro.seurat_CLEAN2_trunc <- liana_astro.seurat_CLEAN2 %>%
+  dplyr::filter(aggregate_rank <= 0.01) %>%
+  arrange(source, target)
+
+liana.seurat_CLEAN2_trunc <- liana.seurat_CLEAN2 %>%
+  dplyr::filter(aggregate_rank <= 0.01) %>%
+  arrange(source, target)
+
+liana.seurat_CLEAN2_trunc_SenderAstro0_or_Astro2 <-
+  liana.seurat_CLEAN2_trunc %>%
+  filter(source %in% c("Astro_0", "Astro_2"))
+
+heat_freq(liana_astro.seurat_CLEAN2_trunc)
+heat_freq(liana.seurat_CLEAN2_trunc)
+#heat_freq(liana.seurat_CLEAN2_trunc_SenderAstro0_or_Astro2)
+
+
+p <- chord_freq(liana.seurat_CLEAN2_trunc,
+                source_groups = c("Astro_0", "Astro_2"),
+                target_groups = c("Astro_0", "Astro_2", "Microglia", "Mitotic", "Neuron", "hNSC" ))
+
+
+#Focus on Astrocytes, identifying those secreted proteins shared and unique to Astro_0 and Astro_2
+length(unique(liana.seurat_CLEAN2$ligand.complex)) #394 secreted proteins observed across all cell types in the dataset
+
+liana.seurat_CLEAN2_trunc_AstrocyteSender <-
+  liana.seurat_CLEAN2_trunc %>%
+  filter(source %in% c("Astro_0", "Astro_2"))
+
+liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary <-
+  liana.seurat_CLEAN2_trunc_AstrocyteSender %>%
+  group_by(source, target) %>%
+  count(ligand.complex)
+
+liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary2 <-
+  liana.seurat_CLEAN2_trunc_AstrocyteSender %>%
+  group_by(source) %>%
+  select(-target) %>%
+  count(ligand.complex)
+
+liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary2_SourceAstro_0 <-
+  liana.seurat_CLEAN2_trunc_AstrocyteSender %>%
+  group_by(source) %>%
+  select(-target) %>%
+  count(ligand.complex) %>%
+  filter(source == "Astro_0")
+
+
+liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary2_SourceAstro_2 <-
+  liana.seurat_CLEAN2_trunc_AstrocyteSender %>%
+  group_by(source) %>%
+  select(-target) %>%
+  count(ligand.complex) %>%
+  filter(source == "Astro_2")
+
+
+sym_diff <- function(a,b) { 
+  return_list <- list()
+  return_list[["shared"]] <- intersect(a,b)
+  return_list[["just_Astro_0"]] <- setdiff(a,b)
+  return_list[["just_Astro_2"]] <- setdiff(b,a)
+  return(return_list)
+  }
+  
+  
+  
+
+LigandComplexOverlap <- sym_diff(a = liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary2_SourceAstro_0$ligand.complex, b = liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary2_SourceAstro_2$ligand.complex)
+
+LigandComplexOverlap #Ligands unique to Astro_2 associated with non-microglia: IL34, VEGFA
+
+#These files split out the Astrocyte-secreted proteins that are shared or unique to either Astro_0 or Astro_2
+liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary_Shared <-
+  liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary %>%
+  filter(ligand.complex %in% LigandComplexOverlap$shared) %>%
+  arrange(ligand.complex)
+
+liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary_JustAstro_0 <-
+  liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary %>%
+  filter(ligand.complex %in% LigandComplexOverlap$just_Astro_0) %>%
+  arrange(ligand.complex)
+
+liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary_JustAstro_2 <-
+  liana.seurat_CLEAN2_trunc_AstrocyteSender_Summary %>%
+  filter(ligand.complex %in% LigandComplexOverlap$just_Astro_2) %>%
+  arrange(ligand.complex)
+
+
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  mutate(AstroSecretedClassification = case_when(gene %in% LigandComplexOverlap$shared ~ "Astro_Shared",
+                                            gene %in% LigandComplexOverlap$just_Astro_0 ~ "Astro_0",
+                                            gene %in% LigandComplexOverlap$just_Astro_2 ~ "Astro_2",
+                                            TRUE ~ "Not_Secreted"
+                                            )) %>%
+  mutate(AllSecretedClassification = case_when(gene %in% unique(liana.seurat_CLEAN2$ligand.complex) ~ "Secreted", TRUE ~ "Not_Secreted")) %>%
+  arrange(match(AstroSecretedClassification, c("Not_Secreted", "Astro_Shared", "Astro_0", "Astro_2")))
+
+
+
+ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender, aes(x = avg_logFC, y = -log10(p_val_adj), color = AstroSecretedClassification))+
+  geom_point()
+
+
+
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_JustAllSecreted <- 
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender %>%
+  filter(AllSecretedClassification == "Secreted")
+
+ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_JustAllSecreted, aes(x = avg_logFC, y = -log10(p_val_adj), color = AstroSecretedClassification))+
+  geom_point()
+
+
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_SigOnly <- 
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender %>%
+  filter(p_val_adj < 0.01) %>%
+  arrange(AllSecretedClassification)
+
+ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_SigOnly, aes(x = avg_logFC, y = -log10(p_val_adj), color = AllSecretedClassification))+
+  geom_point()
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_SigOnlySecreted <- 
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender %>%
+  filter(p_val_adj < 0.01) %>%
+  arrange(AllSecretedClassification) %>%
+  filter(AllSecretedClassification == "Secreted")
+
+
+liana.seurat_CLEAN2_SigAstrocyte <- liana.seurat_CLEAN2 %>%
+  dplyr::filter(ligand.complex %in% DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_SigOnlySecreted$gene) %>%
+  arrange(source, target)
+
+
+#########
+liana_astro.seurat_CLEAN2_truncCPDB <- liana_astro.seurat_CLEAN2 %>%
+  dplyr::filter(cellphonedb.pvalue <= 0.01) %>%
+  arrange(source, target)
+
+liana.seurat_CLEAN2_truncCPDB <- liana.seurat_CLEAN2 %>%
+  dplyr::filter(cellphonedb.pvalue <= 0.01) %>%
+  arrange(source, target)
+
+heat_freq(liana_astro.seurat_CLEAN2_trunc)
+heat_freq(liana.seurat_CLEAN2_trunc)
+#heat_freq(liana.seurat_CLEAN2_trunc_SenderAstro0_or_Astro2)
+
+
+pp <- chord_freq(liana.seurat_CLEAN2_truncCPDB,
+                source_groups = c("Astro_0", "Astro_2"),
+                target_groups = c("Astro_0", "Astro_2", "Microglia", "Mitotic", "Neuron", "hNSC" ))
+
+
+up_genes <- 
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender %>%
+  filter(p_val_adj < 0.01) %>%
+  filter(avg_logFC > 1) %>%
+  pull(gene) %>%
+  as.character()
+
+
+```
+
+#4. CellPhoneDB
+# Preprocessing Steps
+```{r save files for CellPhoneDB Method 3 DEG analysis, echo = F}
+
+cpdb.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/cpdb/cpdb_astrocytes/"
+
+#0. Save metadata
+tha.cpdb.metadata <- tha.seurat_CLEAN2@meta.data
+tha.cpdb.metadata$barcode_sample <- rownames(tha.cpdb.metadata)
+tha.cpdb.metadata <- tha.cpdb.metadata[, colnames(tha.cpdb.metadata) %in% c("barcode_sample", "CoarseCellType_AstroType")]
+tha.cpdb.metadata <- tha.cpdb.metadata[,c(2,1)]
+colnames(tha.cpdb.metadata) <- c("barcode_sample", "cell_type")
+
+write_tsv(x = tha.cpdb.metadata, file = paste0(cpdb.path, "data/tha.cpdb.metadata.tsv"))
+
+
+#1. Save DEGs
+avg_logFC_thresh = 1
+
+DEG_Astro_2_Up <- 
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC > avg_logFC_thresh) %>%
+  mutate(cluster = "Astro_2") %>%
+  relocate(cluster) %>%
+  select(-cell_type, -de_family, -de_method, -de_type)
+
+DEG_Astro_0_Up <- 
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  filter(p_val_adj < 0.01, avg_logFC < -avg_logFC_thresh) %>%
+  mutate(cluster = "Astro_0") %>%
+  relocate(cluster) %>%
+  select(-cell_type, -de_family, -de_method, -de_type) %>%
+  mutate(avg_logFC = -1 * avg_logFC)
+
+tha.cpdb.deg <- bind_rows(DEG_Astro_2_Up, DEG_Astro_0_Up)
+
+write_tsv(x = tha.cpdb.deg, file = paste0(cpdb.path, "data/tha.cpdb.deg.tsv"))
+
+
+#2. Save mock microenvironment file
+tha.microenvironment <- as.tibble(tha.cpdb.metadata)
+
+tha.microenvironment <-
+  tha.microenvironment %>%
+  select(-barcode_sample) %>%
+  distinct() %>%
+  mutate(microenvironment = "Env1")
+
+write_tsv(x = tha.microenvironment, file = paste0(cpdb.path, "data/tha.microenvironment.tsv"))
+
+
+
+
+#3. Save count file
+tha.cpdb.counts             <- as.data.frame(as.matrix( tha.seurat_CLEAN2@assays$RNA@data))
+tha.cpdb.counts$Gene        <- rownames(tha.cpdb.counts)
+tha.cpdb.counts             <- tha.cpdb.counts[ , c("Gene", names(tha.cpdb.counts)[names(tha.cpdb.counts) != "Gene"])]
+rownames( tha.cpdb.counts ) <- NULL
+write_tsv(x = tha.cpdb.counts, file = paste0(cpdb.path, "data/tha.cpdb.counts.tsv"))
+
+#small tester count file
+tha.cpdb.counts_small             <- as.data.frame(as.matrix( tha.seurat_CLEAN2@assays$RNA@data[1:10, 1:10]))
+tha.cpdb.counts_small$Gene        <- rownames(tha.cpdb.counts_small)
+tha.cpdb.counts_small             <- tha.cpdb.counts_small[ , c("Gene", names(tha.cpdb.counts_small)[names(tha.cpdb.counts_small) != "Gene"])]
+rownames( tha.cpdb.counts_small ) <- NULL
+write_tsv(x = tha.cpdb.counts_small, file = paste0(cpdb.path, "data/tha.cpdb.counts_small.tsv"))
+
+
+```
+
+# CPDB Analysis Steps
+After running CPDB v5 on the output files above (~/cpdb/cpdb_astrocytes/cpdb_astrocytes.ipynb)
+```{r cpdb analysis, echo = F}
+
+cpdb.results.path <- "/Users/arpiarsaunders/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/cpdb/cpdb_astrocytes/results/"
+
+#output description: https://github.com/ventolab/CellphoneDB/blob/master/notebooks/T1_Method3.ipynb
+degs_analysis_deconvoluted             <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_deconvoluted_08_28_2024_130625.txt"))
+degs_analysis_deconvoluted_percents    <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_deconvoluted_percents_08_28_2024_130625.txt"))
+degs_analysis_interaction_scores       <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_interaction_scores_08_28_2024_130625.txt"))
+degs_analysis_means                    <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_means_08_28_2024_130625.txt"))
+degs_analysis_relevant_interactions    <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_relevant_interactions_08_28_2024_130625.txt"))
+degs_analysis_significant_means        <- read_tsv(file = paste0(cpdb.results.path, "degs_analysis_significant_means_08_28_2024_130625.txt"))
+
+```
+
+```{r cpdb results preprocessing, echo=FALSE}
+
+degs_analysis_deconvoluted             
+degs_analysis_deconvoluted_percents    
+degs_analysis_interaction_scores       
+degs_analysis_means                   
+degs_analysis_relevant_interactions    
+degs_analysis_significant_means       
+
+
+rel_inter_keep.cols <- c("id_cp_interaction", "interacting_pair", "partner_a", "partner_b", "gene_a", "gene_b", "secreted", "receptor_a", "receptor_b", "annotation_strategy", "is_integrin", "directionality", "classification", "Astro_0|Astro_0", "Astro_0|Astro_2", "Astro_0|Microglia", "Astro_0|Mitotic", "Astro_0|Neuron", "Astro_0|hNSC", "Astro_2|Astro_0", "Astro_2|Astro_2", "Astro_2|Microglia", "Astro_2|Mitotic", "Astro_2|Neuron", "Astro_2|hNSC")
+
+
+degs_analysis_relevant_interactions_Astro <-
+  degs_analysis_relevant_interactions %>%
+    select(one_of(rel_inter_keep.cols)) %>%
+    mutate(gene_a_UP_category = case_when(gene_a %in% DEG_Astro_2_Up$gene ~ "Astro_2_UP", gene_a %in% DEG_Astro_0_Up$gene ~ "Astro_0_UP", TRUE ~ NA)) %>%
+    mutate(gene_b_UP_category = case_when(gene_b %in% DEG_Astro_2_Up$gene ~ "Astro_2_UP", gene_b %in% DEG_Astro_0_Up$gene ~ "Astro_0_UP", TRUE ~ NA)) %>%
+    filter(! (is.na(gene_a_UP_category) & is.na(gene_b_UP_category)))
+
+SenderGenes_Astro0vs2 <-
+  degs_analysis_relevant_interactions_Astro %>%
+  select(gene_a, gene_a_UP_category) %>%
+  filter(!is.na(gene_a_UP_category)) %>%
+  distinct()
+
+#https://jokergoo.github.io/circlize_book/book/the-chorddiagram-function.html
+
+
+#1. Process CPDB results
+degs_analysis_interaction_scores_FullSenderGenes <-
+  degs_analysis_interaction_scores %>%
+  select(gene_a, secreted, directionality) %>%
+  distinct() %>%
+  rename(gene = gene_a)
+
+degs_analysis_interaction_scores_FullReceiverGenes <-
+  degs_analysis_interaction_scores %>%
+  select(gene_b, secreted, directionality) %>%
+  distinct() %>%
+  filter(!is.na(gene_b)) %>%
+  rename(gene = gene_b)
+
+
+SenderGenes_Astro0 <-
+  degs_analysis_relevant_interactions_Astro %>%
+  filter(gene_a_UP_category == "Astro_0_UP") %>%
+  distinct() %>%
+  pull(gene_a)
+
+SenderGenes_Astro2 <-
+  degs_analysis_relevant_interactions_Astro %>%
+  filter(gene_a_UP_category == "Astro_2_UP") %>%
+  distinct() %>%
+  pull(gene_a)
+
+ReceiverGenes_Astro0 <-
+  degs_analysis_relevant_interactions_Astro %>%
+  filter(gene_b_UP_category == "Astro_0_UP") %>%
+  distinct() %>%
+  pull(gene_b)
+
+ReceiverGenes_Astro2 <-
+  degs_analysis_relevant_interactions_Astro %>%
+  filter(gene_b_UP_category == "Astro_2_UP") %>%
+  distinct() %>%
+  pull(gene_b)
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  mutate(AstroSenderClassification = case_when(gene %in% SenderGenes_Astro0 ~ "Astro_0",
+                                                 gene %in% SenderGenes_Astro2 ~ "Astro_2",
+                                                 gene %in% degs_analysis_interaction_scores_FullSenderGenes$gene ~ "IrrelevantSenderGene",
+                                                 TRUE ~ "Not_SenderGene")) %>%
+  arrange(match(AstroSenderClassification, c( "Not_SenderGene", "IrrelevantSenderGene", "Astro_0", "Astro_2")))
+
+
+
+DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteReceiver <-
+  DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2 %>%
+  mutate(AstroReceiverClassification = case_when(gene %in% ReceiverGenes_Astro0 ~ "Astro_0",
+                                                 gene %in% ReceiverGenes_Astro2 ~ "Astro_2",
+                                                 gene %in% degs_analysis_interaction_scores_FullReceiverGenes$gene ~ "IrrelevantReceiverGene",
+                                                 TRUE ~ "Not_ReceiverGene")) %>%
+  arrange(match(AstroReceiverClassification, c( "Not_ReceiverGene", "IrrelevantReceiverGene", "Astro_0", "Astro_2")))
+
+
+###Volcano Plotting
+astro_de.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/volcano/"
+
+#Volcano_AstrocyteSender
+Volcano_AstrocyteSender <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender, aes(x = avg_logFC, y = -log10(p_val_adj), color = AstroSenderClassification, alpha = AstroSenderClassification, size = AstroSenderClassification))+
+  geom_point()+
+  scale_color_manual(values = c(AstrocteReactive_color, Astrocyte_color,  "blue", "grey"))+
+  scale_alpha_manual(values = c(0.8,0.8,0.5, 0.5))+
+  scale_size_manual(values = c(1.5,1.5,0.5,0.5))+
+  guides(color = "none", alpha = "none", size = "none")+
+  geom_hline(yintercept=2, linetype = 2)+
+  scale_x_continuous(limits = c(-5.5, 5.5))+
+  theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank())
+
+Volcano_AstrocyteSender_reference <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteSender, aes(x = avg_logFC, y = -log10(p_val_adj), color = AstroSenderClassification, alpha = AstroSenderClassification, size = AstroSenderClassification, label = gene))+
+  geom_point()+
+  geom_text(hjust=0, vjust=0)+
+  scale_color_manual(values = c(AstrocteReactive_color, Astrocyte_color,  "blue", "grey"))+
+  scale_alpha_manual(values = c(0.8,0.8,0.5, 0.5))+
+  scale_size_manual(values = c(1.5,1.5,0.5,0.5))+
+  guides(color = "none", alpha = "none", size = "none")+
+  geom_hline(yintercept=2, linetype = 2)+
+  scale_x_continuous(limits = c(-5.5, 5.5))+
+  theme_bw()+
+    theme(axis.title=element_blank(),
+      strip.background=element_blank())
+
+
+
+#Save
+ggsave(paste0(astro_de.path, "Volcano_AstrocyteSender.png"),            Volcano_AstrocyteSender,           device='png', width = 3, height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "Volcano_AstrocyteSender_reference.png"),  Volcano_AstrocyteSender_reference, device='png', width = 30, height=22.5, units='in', dpi=600)
+
+Volcano_AstrocyteReceiver <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteReceiver, aes(x = avg_logFC, y = -log10(p_val_adj), color = AstroReceiverClassification, alpha = AstroReceiverClassification, size = AstroReceiverClassification, label = gene))+
+    geom_point()+
+    geom_text(hjust=0, vjust=0)+
+    scale_color_manual(values = c(AstrocteReactive_color, Astrocyte_color,  "blue", "grey"))+
+    scale_alpha_manual(values = c(0.8,0.8,0.5, 0.5))+
+    scale_size_manual(values = c(1.5,1.5,0.5,0.5))+
+    guides(color = "none", alpha = "none", size = "none")+
+    geom_hline(yintercept=2, linetype = 2)+
+    scale_x_continuous(limits = c(-5.5, 5.5))+
+    theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+Volcano_AstrocyteReceiver <-
+  ggplot(DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2_AstrocyteReceiver, aes(x = avg_logFC, y = -log10(p_val_adj), color = AstroReceiverClassification, alpha = AstroReceiverClassification, size = AstroReceiverClassification))+
+    geom_point()+
+     scale_color_manual(values = c(AstrocteReactive_color, Astrocyte_color,  "blue", "grey"))+
+     scale_alpha_manual(values = c(0.8,0.8,0.5, 0.5))+
+     scale_size_manual(values = c(1.5,1.5,0.5,0.5))+
+     guides(color = "none", alpha = "none", size = "none")+
+     geom_hline(yintercept=2, linetype = 2)+
+     scale_x_continuous(limits = c(-5.5, 5.5))+
+     theme_bw()+
+      theme(axis.title=element_blank(),
+        strip.background=element_blank())
+
+#Save
+ggsave(paste0(astro_de.path, "Volcano_AstrocyteReceiver.png"),          Volcano_AstrocyteReceiver,           device='png', width = 3, height=2.25, units='in', dpi=600)
+ggsave(paste0(astro_de.path, "Volcano_AstrocyteSender_reference.png"),  Volcano_AstrocyteSender_reference,   device='png', width = 30, height=22.5, units='in', dpi=600)
+
+
+```

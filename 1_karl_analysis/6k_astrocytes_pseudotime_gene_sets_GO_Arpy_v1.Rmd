@@ -1,0 +1,314 @@
+---
+title: "GO and other analysis related to pro-viral pseudotime-based Gene Sets"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+library(smplot2)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load Data
+```{r load data, echo=FALSE}
+#paths
+kinetics_grouped.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/pseudotime/processed_monocle3/kinetics_grouped_gene_sets/"
+kinetics.plot.path    <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/pseudotime/line_plots/kinetic_groups/"
+data.save.path        <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/pseudotime/processed_monocle3/"
+pseudotime.data.path  <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/pseudotime/"
+
+#gene sets
+early_induction                   <- read.table(file = paste0(kinetics_grouped.path, "early_induction.txt"))
+induced_then_decreased            <- read.table(file = paste0(kinetics_grouped.path, "induced_then_decreased.txt"))
+induced_then_sustained            <- read.table(file = paste0(kinetics_grouped.path, "induced_then_sustained.txt"))
+late_stage                        <- read.table(file = paste0(kinetics_grouped.path, "late_stage.txt"))
+viral_load_tracking               <- read.table(file = paste0(kinetics_grouped.path, "viral_load_tracking.txt"))
+
+AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets <- readRDS(file = "/Users/arpiarsaunders/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/gene_sets/AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets.RDS")
+
+Pseudotime_nTile40_MetaCells               <- readRDS(file = paste0(data.save.path, "Pseudotime_nTile40_MetaCells.RDS"))
+Pseudotime_nTile40_MetaCells_MaxNormalized <- readRDS(file = paste0(data.save.path, "Pseudotime_nTile40_MetaCells_MaxNormalized.RDS"))
+```
+
+
+#1. Assign to vectors and ensure gene sets have unique genes
+```{r clean gene sets, echo=FALSE}
+
+early_induction.unique                   <- unique(early_induction$V1)
+induced_then_decreased.unique            <- unique(induced_then_decreased$V1)
+induced_then_sustained.unique            <- unique(induced_then_sustained$V1)
+late_stage.unique                        <- unique(late_stage$V1)
+viral_load_tracking.unique               <- unique(viral_load_tracking$V1)
+
+```
+
+#2. Convert those gene symbols to updated versions that have ENTREZIDs
+```{r name conversion, echo = F}
+
+GeneSetUP_adjp01_lfc_1.converted               <- bitr(AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+ENTREZID_missing_GeneSetUP_adjp01_lfc_1        <- setdiff(AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1, GeneSetUP_adjp01_lfc_1.converted$SYMBOL)
+
+replacements <- c(
+"ANKRD20A4"  = "ANKRD20A4P",
+"C17orf53"   = "HROB",
+"C21orf62"   = "EPCIP",
+"C7orf61"    = "SPACDR",
+"CARS"       = "CARS1",        
+"CBWD6"      = "ZNG1F",
+"CCDC84"     = "CENATAC",
+"ELMSAN1"    = "MIDEAS",
+"HIST1H1B"   = "H1-5", 
+"HIST1H2AB"  = "H2AC4", 
+"HIST1H2AC"  = "H2AC6",
+"HIST1H2AG"  = "H2AC11",
+"HIST1H2AJ"  = "H2AC14",
+"HIST1H2AL"  = "H2AC16",     
+"HIST1H2BD"  = "H2BC5",
+"HIST1H2BF"  = "H2BC7",
+"HIST1H2BG"  = "H2BC8",
+"HIST1H2BJ"  = "H2BC11",
+"HIST1H2BN"  = "H2BC15",
+"HIST1H3B"   = "H3C2",
+"HIST1H3D"   = "H3C4",
+"HIST1H3E"   = "H3C6",
+"HIST1H3H"   = "H3C10",
+"HIST1H4B"   = "H4C2",
+"HIST1H4C"   = "H4C3",    
+"HIST1H4H"   = "H4C8", 
+"HIST2H4A"   = "H4C14",
+"HIST2H4B"   = "H4C15",
+"ICK"        = "CILK1",
+"KHDRBS2-OT" = "KHDRBS2",
+"TTC25"      = "ODAD4",
+"UHRF1BP1"   = "BLTP3A",
+"ZNF582-AS1" = "ZNF582-DT")
+
+#convert the gene symbols to new versions for those originals with missing ENTREZIDs (checked https://www.genenames.org/ for updates)
+GeneSetUP_adjp01_lfc_1.unique2            <- ifelse(AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1 %in% names(replacements), replacements[AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1], AstroLow_Cluster0.vs.AstroHigh_Cluster2_GeneSets$GeneSetUP_adjp01_lfc_1)
+early_induction.unique2                   <- ifelse(early_induction.unique %in% names(replacements), replacements[early_induction.unique], early_induction.unique)
+induced_then_decreased.unique2            <- ifelse(induced_then_decreased.unique %in% names(replacements), replacements[induced_then_decreased.unique], induced_then_decreased.unique)
+induced_then_sustained.unique2            <- ifelse(induced_then_sustained.unique %in% names(replacements), replacements[induced_then_sustained.unique], induced_then_sustained.unique)
+late_stage.unique2                        <- ifelse(late_stage.unique %in% names(replacements), replacements[late_stage.unique], late_stage.unique)
+viral_load_tracking.unique2               <- ifelse(late_stage.unique %in% names(replacements), replacements[viral_load_tracking.unique], viral_load_tracking.unique)
+
+
+
+```
+
+#5. Exploratory Example Plotting using Monocle3 function
+```{r enrich = FALSE}
+
+###CC - Level 3
+#GeneSetUP_adjp01_lfc_1
+GeneSetUP_adjp01_lfc_1.converted               <- bitr(GeneSetUP_adjp01_lfc_1.unique2, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+GeneSetUP_adjp01_lfc_1.CC.3                    <- groupGO(gene     = GeneSetUP_adjp01_lfc_1.converted$ENTREZID, OrgDb    = org.Hs.eg.db, ont      = "CC", level    = 3, readable = TRUE)
+
+#early_induction
+early_induction.unique.converted               <- bitr(early_induction.unique2, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+early_induction.CC.3                           <- groupGO(gene     = early_induction.unique.converted$ENTREZID, OrgDb    = org.Hs.eg.db, ont      = "CC", level    = 3, readable = TRUE)
+
+#non_early_induction
+non_early_induction.converted.ENTREZID         <- setdiff(x = GeneSetUP_adjp01_lfc_1.converted$ENTREZID, y = early_induction.unique.converted$ENTREZID)
+non_early_induction.CC.3                       <- groupGO(gene     = non_early_induction.converted.ENTREZID, OrgDb    = org.Hs.eg.db, ont      = "CC", level    = 3, readable = TRUE)
+
+#induced_then_decreased
+induced_then_decreased.unique.converted        <- bitr(induced_then_decreased.unique2, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+induced_then_decreased.CC.3                    <- groupGO(gene     = induced_then_decreased.unique.converted$ENTREZID, OrgDb    = org.Hs.eg.db, ont      = "CC", level    = 3, readable = TRUE)
+
+#induced_then_sustained
+induced_then_sustained.unique.converted        <- bitr(induced_then_sustained.unique2, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+induced_then_sustained.CC.3                    <- groupGO(gene     = induced_then_sustained.unique.converted$ENTREZID, OrgDb    = org.Hs.eg.db, ont      = "CC", level    = 3, readable = TRUE)
+
+#late_stage
+late_stage.unique.converted                    <- bitr(late_stage.unique2, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+late_stage.unique.CC.3                         <- groupGO(gene     = late_stage.unique.converted$ENTREZID, OrgDb    = org.Hs.eg.db, ont      = "CC", level    = 3, readable = TRUE)
+
+#viral_load_tracking
+viral_load_tracking.unique.converted           <- bitr(viral_load_tracking.unique2, fromType = "SYMBOL", toType = "ENTREZID", OrgDb = org.Hs.eg.db)
+viral_load_tracking.unique.CC.3                <- groupGO(gene     = viral_load_tracking.unique.converted$ENTREZID, OrgDb    = org.Hs.eg.db, ont      = "CC", level    = 3, readable = TRUE)
+
+
+```
+
+
+```{r chromatin gene line plots}
+
+#GeneSetUP_adjp01_lfc_1
+GeneSetUP_adjp01_lfc_1.CC.3_tbl <- as_tibble(GeneSetUP_adjp01_lfc_1.CC.3@result)
+
+GeneSetUP_adjp01_lfc_1.CC.3_tbl_nucleoplasm <-
+  GeneSetUP_adjp01_lfc_1.CC.3_tbl %>%
+  filter(Description %in% c("nucleoplasm"))
+
+GeneSetUP_adjp01_lfc_1.CC.3_tbl_chromatin <-
+  GeneSetUP_adjp01_lfc_1.CC.3_tbl %>%
+  filter(Description == "chromatin")
+
+GeneSetUP_adjp01_lfc_1.chromatin.genes   <- strsplit(GeneSetUP_adjp01_lfc_1.CC.3_tbl_chromatin$geneID, split = "/")[[1]]
+GeneSetUP_adjp01_lfc_1.nucleoplasm.genes <- strsplit(GeneSetUP_adjp01_lfc_1.CC.3_tbl_nucleoplasm$geneID, split = "/")[[1]]
+
+union_genes            <- union(GeneSetUP_adjp01_lfc_1.chromatin.genes,        GeneSetUP_adjp01_lfc_1.nucleoplasm.genes)
+shared_genes           <- intersect(GeneSetUP_adjp01_lfc_1.chromatin.genes,    GeneSetUP_adjp01_lfc_1.nucleoplasm.genes)
+only_chromatin_genes   <- setdiff(GeneSetUP_adjp01_lfc_1.chromatin.genes,      GeneSetUP_adjp01_lfc_1.nucleoplasm.genes)
+only_nucleoplasm_genes <- setdiff(GeneSetUP_adjp01_lfc_1.nucleoplasm.genes,    GeneSetUP_adjp01_lfc_1.chromatin.genes)
+
+
+
+#early_induction.CC.3 
+early_induction.CC.3_tbl <- as_tibble(early_induction.CC.3@result)
+
+early_induction.CC.3_tbl_nucleoplasm <-
+  early_induction.CC.3_tbl %>%
+  filter(Description %in% c("nucleoplasm"))
+
+early_induction.CC.3_tbl_chromatin <-
+  early_induction.CC.3_tbl %>%
+  filter(Description == "chromatin")
+
+early_induction.chromatin.genes   <- strsplit(early_induction.CC.3_tbl_chromatin$geneID, split = "/")[[1]]
+early_induction.nucleoplasm.genes <- strsplit(early_induction.CC.3_tbl_nucleoplasm$geneID, split = "/")[[1]]
+
+union_genes            <- union(early_induction.chromatin.genes,        early_induction.nucleoplasm.genes)
+shared_genes           <- intersect(early_induction.chromatin.genes,    early_induction.nucleoplasm.genes)
+only_chromatin_genes   <- setdiff(early_induction.chromatin.genes,      early_induction.nucleoplasm.genes)
+only_nucleoplasm_genes <- setdiff(early_induction.nucleoplasm.genes,    early_induction.chromatin.genes)
+
+#non_early_induction.CC.3
+non_early_induction.CC.3_tbl <- as_tibble(non_early_induction.CC.3@result)
+
+non_early_induction.CC.3_tbl_nucleoplasm <-
+  non_early_induction.CC.3_tbl %>%
+  filter(Description %in% c("nucleoplasm"))
+
+non_early_induction.CC.3_tbl_chromatin <-
+  non_early_induction.CC.3_tbl %>%
+  filter(Description == "chromatin")
+
+non_early_induction.chromatin.genes   <- strsplit(non_early_induction.CC.3_tbl_chromatin$geneID, split = "/")[[1]]
+non_early_induction.nucleoplasm.genes <- strsplit(non_early_induction.CC.3_tbl_nucleoplasm$geneID, split = "/")[[1]]
+
+
+
+
+#chromatin genes
+core.cols <- c("row_num", "cluster2_rows", "Pseudotime_nTile40")
+
+colnames(Pseudotime_nTile40_MetaCells_MaxNormalized) <- ifelse(colnames(Pseudotime_nTile40_MetaCells_MaxNormalized) %in% names(replacements), replacements[colnames(Pseudotime_nTile40_MetaCells_MaxNormalized)], colnames(Pseudotime_nTile40_MetaCells_MaxNormalized))
+colnames(Pseudotime_nTile40_MetaCells)               <- ifelse(colnames(Pseudotime_nTile40_MetaCells) %in% names(replacements), replacements[colnames(Pseudotime_nTile40_MetaCells)], colnames(Pseudotime_nTile40_MetaCells))
+
+Pseudotime_nTile40_MetaCells_MaxNormalized_chromatin.genes <-
+  Pseudotime_nTile40_MetaCells_MaxNormalized %>%
+  dplyr::select(core.cols, unique(GeneSetUP_adjp01_lfc_1.chromatin.genes)) 
+
+Pseudotime_nTile40_MetaCells_MaxNormalized_chromatin.genes_LONG <-
+  pivot_longer(data = Pseudotime_nTile40_MetaCells_MaxNormalized_chromatin.genes, cols = -c(core.cols)) %>%
+  mutate(early_induction = case_when(name %in% early_induction.chromatin.genes ~ "yes", TRUE ~ "no")) %>%
+  arrange(desc(early_induction))
+
+Pseudotime_nTile40_MetaCells_MaxNormalized_chromatin.genes_LONG_Summary <-
+  Pseudotime_nTile40_MetaCells_MaxNormalized_chromatin.genes_LONG %>%
+  dplyr::select(name, early_induction) %>%
+  distinct()
+
+table(Pseudotime_nTile40_MetaCells_MaxNormalized_chromatin.genes_LONG_Summary$early_induction)
+length(GeneSetUP_adjp01_lfc_1.converted$SYMBOL) #779 genes
+length(early_induction.unique2)
+length(non_early_induction.converted.ENTREZID)
+
+chromatin.genes.contingency.table <- matrix(c(22, 70, 86, 688), nrow = 2, byrow = TRUE)
+
+# Add row and column names (optional, for clarity)
+rownames(chromatin.genes.contingency.table) <- c("early_induction", "non_early_induction")
+colnames(chromatin.genes.contingency.table) <- c("chromatin.gene", "nonchromatin.gene")
+
+chisq.test(chromatin.genes.contingency.table)
+
+22/92
+86/688
+```
+
+#7. Generate Pseudotime-tile based gene plotting
+```{r pseudotime gene plotting: systematic line plots with non-normalized data, echo = FALSE}
+pseudotime.plot.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/pseudotime/"
+
+
+#Filter the nTiles tbl for plotting just chromatin genes associated with the early induction gene set
+Pseudotime_nTile40_MetaCells_early_induction_chromatin_genes <-
+  Pseudotime_nTile40_MetaCells %>%
+  dplyr::select(c(early_induction.chromatin.genes, "row_num", "cluster2_rows"))
+
+
+for(i in 1:length(early_induction.chromatin.genes)){
+  
+gene <- early_induction.chromatin.genes[i]
+
+print(gene)
+
+gene_baseline_mean <- 
+  Pseudotime_nTile40_MetaCells_early_induction_chromatin_genes %>%
+  filter(row_num %in% c(1:36)) %>%
+  dplyr::select(gene) %>%
+  dplyr::pull(gene) %>%
+  mean()
+
+line.plot <-
+  ggplot(Pseudotime_nTile40_MetaCells_early_induction_chromatin_genes, aes(x = row_num, y = !!sym(gene), group = 1))+
+    geom_line()+
+    geom_point(size = 2, aes(color = cluster2_rows))+
+    scale_color_manual(values = c(Astrocyte_color, AstrocteReactive_color))+
+    geom_hline(yintercept = gene_baseline_mean, linetype = "dotted")+
+    geom_vline(xintercept = 37, linetype = "dotted")+
+    ggtitle(gene)
+
+  
+  ggsave(filename = paste0(pseudotime.plot.path, "line_plots/up_cluster2/early_induction_chromatin_genes/Pseudotime_nTile40_Line_", gene, ".png"), 
+       plot = line.plot, device = "png", width = 12, height = 4)
+}
+
+#plot data preprocessing
+example_early_induction_chromatin_genes <- c("ATF3", "EGR2", "ETS1", "FOSL1", "FOSL2", "NFKB2", "PBX4", "RELB", "ISL2")
+
+Pseudotime_nTile40_MetaCells_MaxNormalized_chromatin.genes_LONG2 <-
+  Pseudotime_nTile40_MetaCells_MaxNormalized_chromatin.genes_LONG %>%
+  filter(name %in% example_early_induction_chromatin_genes) %>%
+  mutate(name = factor(name, levels = c("ATF3", "FOSL1", "FOSL2", "ETS1", "ISL2", "NFKB2",  "RELB", "PBX4", "EGR2")))
+
+
+#plot parameters
+vline.size = 1
+vline.color = "#fec44f"
+example.chromatin.gene.plot.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/6_astrocytes/pseudotime/line_plots/kinetic_groups/early_induction_example_chromatin_genes/"
+
+
+example_early_induction_chromatin_genes_xlimited_plot <-
+  ggplot(Pseudotime_nTile40_MetaCells_MaxNormalized_chromatin.genes_LONG2, aes(x = row_num, y = value))+
+    geom_rect(data = data.frame(xmin = -Inf, xmax = 37.7, ymin = -Inf, ymax = Inf), aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), fill = Astrocyte_color,       alpha = 0.25, inherit.aes = FALSE) +
+    geom_rect(data = data.frame(xmin = 37.5, xmax = Inf, ymin = -Inf, ymax = Inf),  aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), fill = AstrocteReactive_color, alpha = 0.25, inherit.aes = FALSE) +
+    geom_line(aes(color = name), size = 1) +
+    #scale_x_continuous(limits = c(30, 40), breaks = c(0, 10, 20, 30, 35, 36, 37, 38, 39, 40))+
+    scale_x_continuous(limits = c(30, 40), breaks = c(30, 36, 38, 40))+
+    geom_vline(xintercept = 37, linetype = "dotted", size = vline.size, color = vline.color)+
+    theme_bw()+
+    theme(strip.text = element_text( size = 14, family = "Arial", face = "italic"),
+          axis.text.x = element_text(size = 12, family = "Arial"),
+          axis.text.y = element_text(size = 12, family = "Arial"))+
+    facet_wrap(~name)+
+    guides(color = "none")
+
+ggsave(filename = paste0(example.chromatin.gene.plot.path, "example_early_induction_chromatin_genes_xlimited_plot.png"), 
+       plot = example_early_induction_chromatin_genes_xlimited_plot, device = "png", width = 6, height = 6)
+    
+
+  
+```

@@ -1,0 +1,84 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+#Libraries & Source Files
+```{r load libraries and source files, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(viridis)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+
+```
+
+###Load Data
+```{r load data, message=FALSE}
+tha.seurat                   <- read_rds(tha.seurat.path)
+tha.basic.summary            <- read_rds(tha.basic.summary.path)
+tha.seurat.celltype.markers  <- read_rds(tha.seurat.celltype.markers.path)
+tha.seurat.neuron.markers    <- read_rds(tha.seurat.neuron.markers.path)
+```
+
+###Plotting
+#A. Cluster Marker Heat Maps
+```{define grouped color palettes, echo = FALSE}
+
+CellType.colors <-  c(Neuron.SHOX2_color, Neuron.OTP_color, Astrocyte_color, hNSC_color, Microglia_color, Mitotic_color)
+Infected.colors <-  c(Infected_color, Uninfected_color)
+
+```
+
+
+```{r cluster marker heat map plots, echo=FALSE}
+tha.seurat.neuron.markers %>% rownames_to_column(var = 'gene') %>% filter(gene %in% VariableFeatures(tha.seurat)) %>%
+  slice_max(order_by= avg_log2FC, n = 10) -> top10
+
+FeaturePlot(tha.seurat, c(top10$gene, 'STMN2'))
+
+
+
+tha.seurat %>% {
+  temp.seurat <- tha.seurat
+  
+  temp.seurat[[]] %>%
+    rownames_to_column(var = 'CBC') %>%
+    group_by(seurat_clusters) %>%
+    slice_sample(n = 100) %>% {.$CBC} -> cells.to.plot
+  
+  temp.seurat  <- subset(temp.seurat, cells = cells.to.plot)
+  temp.seurat  <- NormalizeData(temp.seurat, normalization.method = "RC", scale.factor = 1E5)
+  #temp.seurat <- NormalizeData(temp.seurat) #Karl's original
+  VariableFeatures(temp.seurat) <- c(VariableFeatures(temp.seurat), 'STMN2', 'ZFHX3', 'LHX1')
+  temp.seurat <- ScaleData(temp.seurat)
+  
+  topgenes <- c(
+    'STMN2', 'ZFHX3', 'LHX1', #Panneuronal
+    'SHOX2', 'MAB21L2', 'NEFL', 'OTP', 'MAB21L1', #NEuron Specific
+    'VIM', 'PTN', 'TTYH1', # Astros
+    'TOP2A', 'CENPF', 'CCNB1', #Mitotic
+    'CRABP1', 'CDKN1C', 'ROBO3', # NSCs
+    'APOE', 'FUCA1', 'C1QB' # Microglia
+  )
+  
+  
+  # DotPlot(tha.seurat, features=top10$gene)
+  DoHeatmap(temp.seurat, features = topgenes, slot = 'scale.data', cells = cells.to.plot)
+}-> plot.gene.heatmap
+
+plot.gene.heatmap <- plot.gene.heatmap + 
+                     scale_fill_viridis(option = "magma") + 
+                     theme( axis.text = element_text (size = 8,  family = "Arial", face = "italic", color = "black"))+
+                     scale_color_manual(values = CellType.colors)
+
+#+ scale_fill_gradientn(colors = c("black", "magenta", "yellow"))
+
+ggsave(plot = plot.gene.heatmap, 
+       filename = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/2_celltype_annotations/supp.genemarkers.png", 
+       device='png', dpi = 'retina', width = 20, height = 7, units='cm')
+```
+

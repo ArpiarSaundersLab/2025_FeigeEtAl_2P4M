@@ -1,0 +1,102 @@
+---
+title: "Seurat Microglia Basics Seurat Workflow"
+author: "Arpy"
+date: '2024-11-12'
+output: html_document
+---
+
+# Adapted code from K. Young's 7_astrocytes.rmd for the 2P4M project
+G.Chin 06/21/24
+
+```{r}
+library(tidyverse)
+library(Seurat)
+library(Libra)
+```
+
+#0. Data Load
+```{r load data, echo = F}
+main.path <- "/Users/chingr/OHSU\ Dropbox/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/"
+
+tha.summary <- read_rds(paste(main.path,'Data/summaries/tha.celltype.infections.RDS', sep = ''))
+
+tha.genome <- c('Tha_N', 'Tha_P', 'Tha_M', 'Tha_G', 'Tha_L')
+tha.seurat <- read_rds(paste(main.path,'Data/seurat_obj/tha.seurat.RDS', sep = ''))
+tha.seurat <- AddMetaData(tha.seurat, column_to_rownames(select(tha.summary, CBC, Experiment, infected, CoarseCellType), var='CBC'))
+
+```
+
+Notes on metadata:
+Tube - 
+Experiment - main grouping, non-infected, tha05, tha5, 2p4m05
+Strain - strain, has NI group
+Titer - titer
+Replicate - ABC are replicates, C only has NI and tha05 as a replicate (biological?)
+TotalUMI - all UMI sum
+TotalViral - total viral RNA
+
+#1. Subset Tha Seurat Object to just Microglia
+```{r subset, echo = F}
+# Subset microglia and check to make sure subset cells are correct
+mg.seurat <- subset(tha.seurat, idents = 'Microglia')
+DimPlot(mg.seurat)
+```
+
+#2. Run Seurat Workflow on Microglia Seurat Object
+```{r seurat, echo = F}
+mg.seurat <- NormalizeData(mg.seurat)
+mg.seurat <- FindVariableFeatures(mg.seurat)
+mg.seurat <- ScaleData(mg.seurat)
+mg.seurat <- RunPCA(mg.seurat)
+mg.seurat <- FindNeighbors(mg.seurat, dims = 1:30)
+mg.seurat <- FindClusters(mg.seurat, resolution = 0.1, n.start=50, n.iter=50)
+mg.seurat <- RunUMAP(mg.seurat, dims = 1:30)
+
+# Why does he invert the sign for this?
+mg.seurat@reductions$umap@cell.embeddings[,'umap_2'] <- -mg.seurat@reductions$umap@cell.embeddings[,'umap_2']
+
+# mg.markers <- FindAllMarkers(mg.seurat)
+DimPlot(mg.seurat)
+DimPlot(mg.seurat, group.by = 'Titer')
+DimPlot(mg.seurat, group.by ='Experiment')
+
+# Characterize clusters
+FeaturePlot(mg.seurat, features = 'TotalUMIs')
+FeaturePlot(mg.seurat, features ='TotalViral')
+FeaturePlot(mg.seurat, features = c("ANK3"), reduction = "umap")
+
+```
+
+#3. Doublet Removal
+```{r doublet removal, echo = F}
+# Remove erroneous cluster, it is non-microglia cells that are clustered as microglia based
+# off gene expression
+mg.seurat <- subset(mg.seurat, idents = setdiff(unique(Idents(mg.seurat)), '1'))
+
+# Extract the UMAP coordinates
+umap_coords <- as.data.frame(Embeddings(mg.seurat, reduction = "umap"))
+
+# Define the criteria for subsetting based on UMAP coordinates
+# For example, selecting cells in a specific region
+# Adjust the criteria as needed
+selected_cells <- umap_coords[umap_coords$umap_1 < 8, ]
+mg.seurat <- subset(mg.seurat, cells = rownames(selected_cells))
+DimPlot(mg.seurat, reduction = "umap")
+
+
+# Add binary delineation of microglia infected with some viral UMI or not
+mg.seurat@meta.data <- mg.seurat@meta.data %>%
+  mutate(InfectionState = case_when(
+    ViralLoad > 0 ~ "Infected",
+    ViralLoad == 0 ~ "Non-Infected",
+    TRUE ~ "Other"
+  ))
+
+```
+
+#4. Save Doublet-cleaned Microglia Seurat Object
+```{r saved clean Seurat, echo = F}
+
+write_rds(mg.seurat, file = '/Users/GregoryChin/Dropbox\ (OHSU)/Saunders\ Lab\'s\ shared\ workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/2_greg_analysis/Data/seurat_obj/mg_seurat.RDS')
+
+```

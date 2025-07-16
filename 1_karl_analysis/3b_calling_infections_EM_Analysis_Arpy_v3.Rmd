@@ -1,0 +1,493 @@
+---
+title: "Descriptive analysis of scRNA-seq infection states and cell types"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(Seurat)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+#0. Load
+```{r load data, echo = FALSE}
+tha.celltype.infections.summary <- read_rds(tha.celltype.infections.summary.path)
+tha.iterations                  <- read_rds(tha.iterations.path)
+tha.assignment_iterations_MERGE <- read_rds(tha.assignment_iterations_MERGE.path)
+
+#astrocyte/microglia subclustering results to ID doublets
+neuron.doublets    <- read_rds(neuron.doublets.path)
+astrocyte.doublets <- read_rds(astrocyte.doublets.path)
+microglia.doublets <- read_rds(microglia.doublets.path)
+mitotic.doublets   <- read_rds(mitotic.doublets.path)
+hNSC.doublets      <- read_rds(hNSC.doublets.path)
+
+```
+
+#1. Annotate astrocyte/microglia doublets in tha.celltype.infections.summary
+```{r annotate doublets, echo = F}
+
+#make the new $is_doublet column to flag doublet CBCs
+tha.celltype.infections.summary_doubletsflagged <- 
+  tha.celltype.infections.summary %>%
+  mutate(is_doublet = case_when(CBC %in% c(neuron.doublets, astrocyte.doublets, microglia.doublets, mitotic.doublets, hNSC.doublets) ~ "yes", TRUE ~ "no"))
+
+saveRDS(object = tha.celltype.infections.summary_doubletsflagged, file = tha.celltype.infections.summary_doubletsflagged.path)
+
+```
+
+
+#1. Infection Status Plotting
+```{r 3_calling_infections_EM save path, echo = FALSE}
+
+plot.path.3_calling_infections_EM <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Plots/3_calling_infections_EM/"
+```
+
+```{r define grouped color palettes, echo = FALSE}
+
+CellType.colors <-  c(Neuron.SHOX2_color, Neuron.OTP_color, Astrocyte_color, hNSC_color, Microglia_color, Mitotic_color)
+Infected.colors <-  c(Infected_color, Uninfected_color)
+
+```
+
+```{r Infection Status Plotting, echo = FALSE}
+
+#2P4M_05_em_density
+tha.celltype.infections.summary %>%
+  filter(seurat.include == 'yes', Experiment == '2P4M_05') %>%
+  ggplot(aes(log10(TotalUMIs), log10(TotalViral + 1)))+
+  ggpointdensity::geom_pointdensity(size=0.4)+
+  scale_color_viridis_c(end = 0.9)+
+  #guides(color = "none")+
+  theme (axis.text = element_text (size = 20,  family = "Arial", face = "plain", color = "black"),
+         axis.title = element_text (size = 20, family = "Arial", face = "bold", color = "black"))+
+  labs(x='Host UMIs (log10)', y = 'Viral UMIs (log10)', color = 'Infected') -> plot.em.density
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "2P4M_05_em_density.png"), 
+       plot = plot.em.density, device = 'png', dpi = 600, width = 3, height=4)
+
+#No Label Version
+plot.em.density_noLabel <- plot.em.density + guides(color = "none")
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "2P4M_05_em_density_noLabel.png"), 
+       plot = plot.em.density_noLabel, device = 'png', dpi = 600, width = 3, height=4)
+
+
+
+
+
+
+tha.assignment_iterations_MERGE %>%
+  merge(select(tha.celltype.infections.summary, CBC, Experiment)) %>%
+  filter(iteration %in% c(1:3, 20)) %>%
+  mutate(iteration = factor(iteration, levels = c(1:3, 20))) %>%
+  mutate(infected = factor(if_else(infected == 'A', 'No', 'Yes'), levels = c('Yes', 'No'))) %>%
+  ggplot(aes(log10(TotalUMIs), log10(TotalViral + 1), color=infected))+
+  scale_color_manual(values = Infected.colors)+
+  geom_point(size=0.4)+
+  facet_wrap(Experiment~iteration, nrow=3) +
+  # scale_x_continuous(labels=label_fn) +
+  # scale_y_continuous(labels=label_fn) +
+  labs(x='Total UMIs', y = 'Viral UMIs', color = 'Infected') -> plot.em.iteration
+  # theme(legend.position='none')
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "AllExperiments_Iterations1-2-3-20_supp_em_iteration.png"), 
+       plot = plot.em.iteration, device = 'png', dpi = 'retina', width = 12, height=8)
+
+
+#Experiment_2P4M_05_Iteration1_em_iteration
+tha.assignment_iterations_MERGE %>%
+  merge(select(tha.celltype.infections.summary, CBC, Experiment)) %>%
+  filter(iteration == 1, Experiment == "2P4M_05") %>%
+  mutate(iteration = factor(iteration, levels = c(1:3, 20))) %>%
+  mutate(infected = factor(if_else(infected == 'A', 'No', 'Yes'), levels = c('Yes', 'No'))) %>%
+  ggplot(aes(log10(TotalUMIs), log10(TotalViral + 1), color=infected))+
+  scale_color_manual(values = Infected.colors)+
+  geom_point(size=0.4)+
+  guides(color = "none")+
+  theme (axis.text = element_text (size = 20,  family = "Arial", face = "plain", color = "black"),
+         axis.title = element_text (size = 20, family = "Arial", face = "bold", color = "black"))+
+  labs(x='Host UMIs (log10)', y = 'Viral UMIs (log10)', color = 'Infected') -> Experiment_2P4M_05_Iteration1_em_iteration
+
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "Experiment_2P4M_05_Iteration1_em_iteration.png"), 
+       plot = Experiment_2P4M_05_Iteration1_em_iteration, device = 'png', dpi = 600, width = 3, height=4)
+
+
+#Experiment_2P4M_05_Iteration2_em_iteration
+tha.assignment_iterations_MERGE %>%
+  merge(select(tha.celltype.infections.summary, CBC, Experiment)) %>%
+  filter(iteration == 2, Experiment == "2P4M_05") %>%
+  mutate(iteration = factor(iteration, levels = c(1:3, 20))) %>%
+  mutate(infected = factor(if_else(infected == 'A', 'No', 'Yes'), levels = c('Yes', 'No'))) %>%
+  ggplot(aes(log10(TotalUMIs), log10(TotalViral + 1), color=infected))+
+  scale_color_manual(values = Infected.colors)+
+  geom_point(size=0.4)+
+  guides(color = "none")+
+  theme (axis.text = element_text (size = 20,  family = "Arial", face = "plain", color = "black"),
+         axis.title = element_text (size = 20, family = "Arial", face = "bold", color = "black"))+
+  labs(x='Host UMIs (log10)', y = 'Viral UMIs (log10)', color = 'Infected') -> Experiment_2P4M_05_Iteration2_em_iteration
+
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "Experiment_2P4M_05_Iteration2_em_iteration.png"), 
+       plot = Experiment_2P4M_05_Iteration2_em_iteration, device = 'png', dpi = 600, width = 3, height=4)
+
+
+#Experiment_2P4M_05_Iteration20_em_iteration
+tha.assignment_iterations_MERGE %>%
+  merge(select(tha.celltype.infections.summary, CBC, Experiment)) %>%
+  filter(iteration == 20, Experiment == "2P4M_05") %>%
+  mutate(iteration = factor(iteration, levels = c(1:3, 20))) %>%
+  mutate(infected = factor(if_else(infected == 'A', 'No', 'Yes'), levels = c('Yes', 'No'))) %>%
+  ggplot(aes(log10(TotalUMIs), log10(TotalViral + 1), color=infected))+
+  scale_color_manual(values = Infected.colors)+
+  geom_point(size=0.4)+
+  guides(color = "none")+
+  theme (axis.text = element_text (size = 20,  family = "Arial", face = "plain", color = "black"),
+         axis.title = element_text (size = 20, family = "Arial", face = "bold", color = "black"))+
+  labs(x='Host UMIs (log10)', y = 'Viral UMIs (log10)', color = 'Infected') -> Experiment_2P4M_05_Iteration20_em_iteration
+
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "Experiment_2P4M_05_Iteration20_em_iteration.png"), 
+       plot = Experiment_2P4M_05_Iteration20_em_iteration, device = 'png', dpi = 600, width = 3, height=4)
+
+
+```
+
+```{r Infected vs Uninfected UMI Density Plots, echo = FALSE}
+
+tha.iterations[[20]]$assignments %>%
+  mutate(infected = factor(if_else(infected == 'A', 'No', 'Yes'), levels = c('Yes', 'No'))) %>%
+  filter(TotalViral > 0) %>%
+  ggplot(aes(log(TotalViral / TotalUMIs)))+
+  geom_histogram(aes(fill = infected), bins = 80, position='identity', alpha = 0.8)+
+  scale_fill_manual(values = Infected.colors)+
+  geom_function(
+    aes(y = after_stat(y) * tha.iterations[[20]]$fits$prior[1] * 2500), linewidth = 3,
+    fun = dnorm, args = list(
+      'mean' = 9 * tha.iterations[[20]]$fits$mu_coef[1] + tha.iterations[[20]]$fits$mu_off[1],
+      'sd' = 9 * tha.iterations[[20]]$fits$sig_coef[1] + tha.iterations[[20]]$fits$sig_off[1])
+  ) +
+  geom_function(
+    aes( y = after_stat(y) * tha.iterations[[20]]$fits$prior[1] * 2500), color = Uninfected_color,linewidth=1,
+    fun = dnorm, args = list(
+      'mean' = 9 * tha.iterations[[20]]$fits$mu_coef[1] + tha.iterations[[20]]$fits$mu_off[1],
+      'sd' = 9 * tha.iterations[[20]]$fits$sig_coef[1] + tha.iterations[[20]]$fits$sig_off[1])
+  ) +
+  geom_function(
+    aes(y = after_stat(y) * tha.iterations[[20]]$fits$prior[2] * 2500), linewidth = 3,
+    fun = dnorm, args = list(
+      'mean' = 9.45 * tha.iterations[[20]]$fits$mu_coef[2] + tha.iterations[[20]]$fits$mu_off[2],
+      'sd' = 9.45 * tha.iterations[[20]]$fits$sig_coef[2] + tha.iterations[[20]]$fits$sig_off[2])
+  ) +
+  geom_function(
+    aes(y = after_stat(y) * tha.iterations[[20]]$fits$prior[2] * 2500), color = Infected_color,linewidth = 1,
+    fun = dnorm, args = list(
+      'mean' = 9.45 * tha.iterations[[20]]$fits$mu_coef[2] + tha.iterations[[20]]$fits$mu_off[2],
+      'sd' = 9.45 * tha.iterations[[20]]$fits$sig_coef[2] + tha.iterations[[20]]$fits$sig_off[2])
+  ) +
+  scale_x_continuous(name = "% Rabies UMIs", labels = c("0.01", "0.1", "1.0", "10", "100"))+
+  ylab("Density")+
+  guides(fill = "none")+
+  theme (axis.text.x = element_text (size = 28,  family = "Arial", face = "plain", color = "black"),
+         axis.text.y = element_blank(),
+         axis.title = element_text (size =28, family = "Arial", face = "bold", color = "black"),
+         plot.margin = ggplot2::margin(t = 0, r = 1, b = 0, l = 1, unit = "cm")) -> plot.computed.infection.density
+
+plot.computed.infection.density
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "AllExperiments_supp.computed.infection.density.png"), 
+  plot.computed.infection.density, device='png', width = 8, height= 9, units='cm', scale = 1.5, dpi=600)
+```
+
+```{r UMAP Plots, echo = FALSE}
+
+
+#CellType
+UMAP_CellType <- tha.celltype.infections.summary_doubletsflagged %>%
+  filter(seurat.include == 'yes', is_doublet == 'no') %>%
+  ggplot(aes(UMAP_1, UMAP_2, color=CellType))+
+  scale_color_manual(values = CellType.colors)+
+  geom_point(size=0.3) +
+  theme_bw() +
+  theme(
+    legend.position='none',
+    axis.ticks=element_blank(),
+    axis.text=element_blank(),
+    axis.title=element_blank())+
+  labs(x=NULL, y=NULL)
+
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "UMAP_CellType.png"), 
+       UMAP_CellType, device='png', width = 5.75, height=5.75, units='cm', dpi='retina')
+
+
+#Infected (Tha 05) Experiment == '2P4M_05'
+UMAP_Infected <- tha.celltype.infections.summary_doubletsflagged %>%
+  filter(seurat.include == 'yes',  is_doublet == 'no', Experiment == '2P4M_05') %>%
+  mutate(infected = factor(infected, levels = c('yes', 'no'))) %>%
+  arrange(infected) %>%
+  ggplot(aes(UMAP_1, UMAP_2, color=infected))+
+  scale_color_manual(values = Infected.colors)+
+  geom_point(size=0.3) +
+  theme_bw() +
+  theme(legend.position='none',
+    axis.ticks=element_blank(),
+    axis.text=element_blank(),
+    axis.title=element_blank())+
+  labs(x=NULL, y=NULL)
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "UMAP_Experiment_2P4M_05_Infected.png"), 
+       UMAP_Infected, device='png', width = 5.75, height=5.75, units='cm', dpi='retina')
+
+```
+
+```{r Infected Bar Plots, echo = FALSE}
+All_Infected_BarPlots <- tha.celltype.infections.summary_doubletsflagged %>%
+  filter(seurat.include == 'yes', is_doublet == 'no', Strain != 'NI') %>%
+  group_by(Tube, CellType) %>%
+  summarise(inf = sum(infected == 'yes'), n=n(), perc = inf / n) %>%
+  separate(Tube, into = c('Replicate', 'Strain', 'Titer'), remove=FALSE) %>%
+  unite(Experiment, Strain, Titer, remove=FALSE) %>%
+  mutate(Experiment = factor(Experiment,
+    levels = c('Tha_05', '2P4M_05', 'Tha_5'))) %>%
+  {
+    ggplot()+
+      geom_col(aes(Experiment, perc, fill=CellType),
+        data=group_by(., CellType, Experiment) %>% summarize(perc = mean(perc)),
+        position=position_dodge(width=0.9))+
+        scale_fill_manual(values = CellType.colors)+
+        scale_y_continuous(name = "% Infected", labels = c("0","25","50","75","100"))+
+        scale_x_discrete(name = "Infection Condition", labels = c("Tha (0.5)", "Tha2P4M (0.5)", "Tha (5.0)"))+
+      geom_point(aes(Experiment, perc, group=CellType), data = .,
+        position=position_dodge(width=0.9), size=0.6)
+  } +
+  theme_bw()+
+  theme(
+    legend.position='none',
+     axis.title.y= element_text(size = 10, family = "Arial", face = "bold", color = "black", vjust = 0),
+     axis.title.x= element_text(size = 10, family = "Arial", face = "bold", color = "black", , vjust = 1),
+     axis.text.y= element_text(size = 8, family = "Arial", face = "plain", color = "black"),
+     axis.text.x=  element_text(size = 8, family = "Arial", face = "plain", color = "black", angle = 30, hjust = 0.8),
+     #axis.line=element_blank(),
+     #panel.border=element_blank()
+  )
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "All_Infected_BarPlots.png"), 
+       All_Infected_BarPlots, device='png', width = 5.75, height=5.75, units='cm', dpi=600)
+```
+
+```{r Cell Type Proportion Bar Plots, echo = FALSE}
+
+CellTypeProportions_ByExperimentSummary <- 
+  tha.celltype.infections.summary_doubletsflagged %>%
+  filter(!is.na(CellType)) %>%
+  group_by(Tube, CellType) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Tube) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+CellTypeProportions_ByExperimentSummary <-
+  CellTypeProportions_ByExperimentSummary %>%
+  mutate(Experiment = case_when(Tube %in% c("A_2P4M_05", "B_2P4M_05") ~ "2P4M_05",
+								Tube %in% c("A_NI_0", "B_NI_0", "C_NI_0") ~ "NI_0",
+								Tube %in% c("A_Tha_05", "B_Tha_05", "C_Tha_05") ~ "Tha_05",
+								Tube %in% c("A_Tha_5", "B_Tha_5") ~ "Tha_5",
+								TRUE ~ NA))
+
+CellTypeProportions_ByExperiment_BarPlots <-
+  ggplot(CellTypeProportions_ByExperimentSummary, aes(x = CellType, y = percentage)) +
+  geom_boxplot(outlier.shape = NA, fill = "white", color = "black") +
+  geom_jitter(aes(fill = Experiment), width = 0.2, size = 4, alpha = 0.8, shape = 21) +
+  scale_fill_manual(values = c(Uninfected_color, Tha_color, Tha5_color, Tha2P4M_color)) +
+  scale_y_continuous(name = "% of Dataset") +
+  xlab(label = "Cell Type") +
+  theme_bw()+
+    theme(
+    legend.position='none',
+     axis.title.y= element_text(size = 22, family = "Arial", face = "bold", color = "black", vjust = 1),
+     axis.title.x= element_text(size = 22, family = "Arial", face = "bold", color = "black", , vjust = 1),
+     axis.text.y= element_text(size = 20, family = "Arial", face = "plain", color = "black"),
+     axis.text.x=  element_text(size = 20, family = "Arial", face = "plain", color = "black", angle = 30, hjust = 0.7, vjust = 0.8))
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "CellTypeProportions_ByExperiment_BarPlots.png"), 
+       CellTypeProportions_ByExperiment_BarPlots, device='png', width = 15, height=15, units='cm', dpi=600)
+
+CellTypeProportions_ByExperiment_BarPlots_NoLabel <- 
+  ggplot(CellTypeProportions_ByExperimentSummary, aes(x = CellType, y = percentage)) +
+  geom_boxplot(outlier.shape = NA, fill = "white", color = "black") +
+  geom_jitter(aes(fill = Experiment), width = 0.2, size = 4, alpha = 0.8, shape = 21) +
+  scale_fill_manual(values = c(Uninfected_color, Tha_color, Tha5_color, Tha2P4M_color)) +
+  guides(fill = "none")+
+  scale_y_continuous(name = "% of Dataset") +
+  xlab(label = "Cell Type") +
+  theme_bw()+
+    theme(
+    legend.position='none',
+     axis.title.y= element_text(size = 22, family = "Arial", face = "bold", color = "black", vjust = 1),
+     axis.title.x= element_text(size = 22, family = "Arial", face = "bold", color = "black", , vjust = 1),
+     axis.text.y= element_text(size = 20, family = "Arial", face = "plain", color = "black"),
+     axis.text.x=  element_text(size = 20, family = "Arial", face = "plain", color = "black", angle = 30, hjust = 0.7, vjust = 0.8))
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "CellTypeProportions_ByExperiment_BarPlots_NoLabel.png"), 
+       CellTypeProportions_ByExperiment_BarPlots_NoLabel, device='png', width = 15, height=15, units='cm', dpi=600)
+
+```
+
+
+#2. Simulated Data from E-M distributions
+
+```{r Simulated Infection Calling, echo = FALSE}
+#Start with tha.starting, the real data
+tha.starting <- tha.celltype.infections.summary %>%
+  filter(seurat.include == 'yes', Strain != 'NI')
+
+#Perform Simulation
+test <- tha.starting %>% select(CBC, TotalUMIs, CellType) %>% merge(select(tha.iterations[[20]]$assignments, CBC, infected))
+test <- mutate(test, sampleinfected = sample(c('yes', 'no'), size = nrow(tha.starting), replace=TRUE, prob=c(0.85, 0.15)))
+test <- mutate(test, sampleinfected = if_else(CellType == 'Microglia', 'no', sampleinfected))
+test <- rename(test, realinfected = infected)
+
+test <- crossing(test, tha.iterations[[20]]$fits)
+test <- filter(test, (sampleinfected == 'no' & infected == 'A') | (sampleinfected == 'yes' & infected == 'B'))
+
+test <- mutate(test,
+  sampleVL = rnorm(nrow(test), mean = log(TotalUMIs) * mu_coef + mu_off, sd = log(TotalUMIs) * sig_coef + sig_off)
+)
+
+test <- mutate(test,
+  samplereads = rbinom(nrow(test), size=TotalUMIs, prob=exp(sampleVL))  
+)
+
+test %>%
+  mutate(TotalViral = samplereads, sim = 'simulated') -> test
+
+
+###Plotting
+#Simulated_vs_Real_UMIScatter
+test %>%
+  select(CBC, TotalViral, TotalUMIs, sim) %>%
+  bind_rows(
+    tha.starting %>%
+      mutate(sim = 'real') %>%
+      select(CBC, TotalViral, TotalUMIs, sim)
+  ) %>%
+  filter(TotalViral > 0) %>%
+  ggplot(aes(log10(TotalUMIs - TotalViral), log10(TotalViral)))+
+  ggpointdensity::geom_pointdensity(size=0.5)+
+  scale_color_viridis_c() +
+  facet_wrap(~sim) +
+  theme(legend.position='none')+
+  labs(x = 'Log10 Host UMIs', y = 'Log10 Viral UMIs') -> Simulated_vs_Real_UMIScatter
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "Simulated_vs_Real_UMIScatter.png"), 
+       Simulated_vs_Real_UMIScatter, device='png', width = 5, height=3, dpi='retina', scale=1.2)
+
+
+#Simulated_UMIScatter
+test %>%
+  filter(samplereads > 0) %>%
+  ggplot(aes(log10(TotalUMIs - samplereads), log10(samplereads)))+
+  ggpointdensity::geom_pointdensity()+
+  scale_color_viridis_c() -> Simulated_UMIScatter
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "Simulated_UMIScatter.png"), 
+       Simulated_UMIScatter, device='png', width = 5, height=3, dpi='retina', scale=1.2)
+
+#Real_UMIScatter
+tha.starting %>%
+  filter(TotalViral > 0) %>%
+  ggplot(aes(log(TotalHost), log(TotalViral)))+
+  ggpointdensity::geom_pointdensity()+
+  scale_color_viridis_c() -> Real_UMIScatter
+
+ggsave(paste0(plot.path.3_calling_infections_EM, "Real_UMIScatter.png"), 
+       Real_UMIScatter, device='png', width = 5, height=3, dpi='retina', scale=1.2)
+
+```
+
+
+
+#3. STATISTICS AND DATA DESCRIPTION
+```{r stats and description, echo = FALSE}
+
+#1. Filter to include just those RNA profiles in Seurat and hence the final analysis
+tha.celltype.infections.summary_seurat.include <-
+  tha.celltype.infections.summary_doubletsflagged %>%
+  filter(seurat.include == "yes", is_doublet == 'no')
+
+#2. Summary of CellType and CoarseCellType
+CellType_Summary <-
+  tha.celltype.infections.summary_seurat.include %>%
+  dplyr::count(CellType) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+#3. Summary of CellType and CoarseCellType
+CoarseCellType_Summary <-
+  tha.celltype.infections.summary_seurat.include %>%
+  dplyr::count(CoarseCellType) %>%
+  mutate(percentage = n / sum(n) * 100)
+
+#4. Viral load
+  tha.celltype.infections.summary_seurat.include_Infected <-
+  tha.celltype.infections.summary_seurat.include %>%
+  filter(infected == "yes")
+
+  tha.celltype.infections.summary_seurat.include_Bystander <-
+  tha.celltype.infections.summary_seurat.include %>%
+  filter(Experiment %in% c("Tha_05", "2P4M_05", "Tha_5")) %>%
+  filter(infected == "no")
+
+  #Descriptions as Viral Load %
+  ViraLoad_Infected_range    <- range(tha.celltype.infections.summary_seurat.include_Infected$ViralLoad) * 100
+  ViraLoad_Infected_mean     <- mean(tha.celltype.infections.summary_seurat.include_Infected$ViralLoad) * 100
+  ViraLoad_Infected_sem      <- stderror(tha.celltype.infections.summary_seurat.include_Infected$ViralLoad) * 100
+  ViraLoad_Infected_median   <- median(tha.celltype.infections.summary_seurat.include_Infected$ViralLoad) * 100
+  
+  ViraLoad_Bystander_range    <- range(tha.celltype.infections.summary_seurat.include_Bystander$ViralLoad) * 100
+  ViraLoad_Bystander_mean     <- mean(tha.celltype.infections.summary_seurat.include_Bystander$ViralLoad) * 100
+  ViraLoad_Bystander_sem      <- stderror(tha.celltype.infections.summary_seurat.include_Bystander$ViralLoad) * 100
+  ViraLoad_Bystander_median   <- median(tha.celltype.infections.summary_seurat.include_Bystander$ViralLoad) * 100
+  
+#5. Infection % by CellType and Experimental condition
+  CellTypeInfection_byExperiment_Summary <-
+  tha.celltype.infections.summary_seurat.include %>%
+  filter(Experiment %in% c("Tha_05", "2P4M_05", "Tha_5")) %>%
+  group_by(CellType, Experiment) %>%
+  dplyr::count(infected) %>%
+  dplyr::mutate(percentage = n / sum(n) * 100)
+
+
+CellTypeInfection_byExperiment_Summary_Microglia <-
+  CellTypeInfection_byExperiment_Summary %>%
+  filter(CellType == "Microglia")
+
+CellTypeInfection_byExperiment_Summary_Tha_5 <-
+  CellTypeInfection_byExperiment_Summary %>%
+  filter(Experiment == "Tha_5", CellType != "Microglia")
+  
+CellTypeInfection_byExperiment_Summary_Tha_05_Tha2P4M_05 <-
+  CellTypeInfection_byExperiment_Summary %>%
+  filter(Experiment %in% c("Tha_05", "2P4M_05"), CellType != "Microglia")
+
+CellTypeInfection_byExperiment_Summary_Tha_05_Tha2P4M_05.Infected <-
+  CellTypeInfection_byExperiment_Summary_Tha_05_Tha2P4M_05 %>%
+  filter(infected == "yes")
+
+CellTypeInfection_byExperiment_Summary_Tha_5.Infected <-
+  CellTypeInfection_byExperiment_Summary_Tha_5 %>%
+  filter(infected == "yes")
+
+range(CellTypeInfection_byExperiment_Summary_Tha_05_Tha2P4M_05.Infected$percentage)
+range(CellTypeInfection_byExperiment_Summary_Tha_5.Infected$percentage)
+# CellTypeInfection_byExperiment_Summary_Tha_05_Tha2P4M_05_PercentageANOVA <- 
+#   aov(percentage ~ CellType + Experiment, data = CellTypeInfection_byExperiment_Summary_Tha_05_Tha2P4M_05.Infected)
+# 
+# summary.aov(CellTypeInfection_byExperiment_Summary_Tha_05_Tha2P4M_05)
+
+```

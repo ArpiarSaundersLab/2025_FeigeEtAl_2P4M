@@ -1,0 +1,951 @@
+---
+title: "Pre-processing of host cell expression responses to Tha and Tha2P4M mutations"
+author: "Arpy"
+date: '2024-09-24'
+output: html_document
+---
+
+#Libraries and Source Files
+```{r libraries and functions, message=FALSE}
+library(tidyverse)
+library(Seurat)
+library(Libra)
+
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_color_palettes_tha2P4M.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_functions.R")
+source("~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/r_functions_paths/_karl_tha2P4M_filepaths.R")
+```
+
+
+#Load data
+```{r load data, message=FALSE}
+
+tha.celltype.infections.summary <- read_rds(tha.celltype.infections.summary.path)
+tha.seurat                      <- read_rds(tha.seurat.path)
+
+```
+
+
+#Preprocess tha.celltype.infections
+```{r preprocess, echo=FALSE}
+
+tha.summary_log10 <-
+  tha.celltype.infections.summary %>%
+  mutate(
+    lViralLoad = log10(ViralLoad),
+    lTotalHost = log10(TotalHost),
+    lTotalViral = log10(TotalViral),
+    lTotalUMIs = log10(TotalUMIs),
+    )
+
+tha.genome <- c('Tha_N', 'Tha_P', 'Tha_M', 'Tha_G', 'Tha_L')
+
+```
+
+```{r check cell numbers by condition, echo=FALSE}
+
+tha.summary_log10_Summary <-
+  tha.summary_log10 %>%
+  group_by(Experiment, CoarseCellType) %>%
+  count(infected)
+
+saveRDS(object = tha.summary_log10_Summary, file = "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/summaries/cellcounts_description/tha.summary_log10_Summary.RDS")
+
+```
+
+#Differential Expression Testing across Experimental Conditions
+```{r differential expression testing, echo = FALSE}
+
+#define the de data save path
+de.data.path <- "~/OHSU Dropbox/Saunders Lab's shared workspace/arpy/manuscripts/2023_Thai2P4M_FeigeYoung/ms_analyses/1_karl_analysis/Data/de/"
+
+###240710 -> these comparisons tend to use all cells in each condition and not just the infected == 'yes', except for "bystander" analyses of course.
+
+#Tha_05, Tha5 and 2P4M vs NI: 1a-c
+##################### 
+#1a. tha05.vs.NI
+#####################
+#CoarseCellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == 'Tha_05' | Experiment == 'NI_0'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('Tha_05', 'NI_0')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha05.vs.NI.CoarseCellType
+
+#Save
+saveRDS(object = DE.tha05.vs.NI.CoarseCellType, file = paste0(de.data.path, "DE.tha05.vs.NI.CoarseCellType.RDS"))
+
+
+#CellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == 'Tha_05' | Experiment == 'NI_0'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('Tha_05', 'NI_0')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha05.vs.NI.CellType
+
+#Save
+saveRDS(object = DE.tha05.vs.NI.CellType, file = paste0(de.data.path, "DE.tha05.vs.NI.CellType.RDS"))
+
+
+##################### 
+#1b. tha05.vs.NI
+#####################
+#CoarseCellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == 'Tha_5' | Experiment == 'NI_0'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('Tha_5', 'NI_0')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha5.vs.NI.CoarseCellType
+
+#Save
+saveRDS(object = DE.tha5.vs.NI.CoarseCellType, file = paste0(de.data.path, "DE.tha5.vs.NI.CoarseCellType.RDS"))
+
+
+#CellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == 'Tha_5' | Experiment == 'NI_0'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('Tha_5', 'NI_0')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha5.vs.NI.CellType
+
+#Save
+saveRDS(object = DE.tha5.vs.NI.CellType, file = paste0(de.data.path, "DE.tha5.vs.NI.CellType.RDS"))
+
+
+
+
+
+##################### 
+#1c. tha2p4m.vs.NI
+#####################
+#CoarseCellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == '2P4M_05' | Experiment == 'NI_0'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('2P4M_05', 'NI_0')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha2p4m.vs.NI.CoarseCellType
+
+#Save
+saveRDS(object = DE.tha2p4m.vs.NI.CoarseCellType, file = paste0(de.data.path, "DE.tha2p4m.vs.NI.CoarseCellType.RDS"))
+
+
+#CellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == '2P4M_05' | Experiment == 'NI_0'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('2P4M_05', 'NI_0')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha2p4m.vs.NI.CellType
+
+#Save
+saveRDS(object = DE.tha2p4m.vs.NI.CellType, file = paste0(de.data.path, "DE.tha2p4m.vs.NI.CellType.RDS"))
+
+
+
+
+
+
+
+#Bystander Analysis: 2a-c
+#####################
+#2a. tha05 (No Infection) vs NI 
+#####################
+#CoarseCellType
+tha.summary_log10 %>%
+{
+  restricted.summary <- filter(tha.summary_log10,
+    seurat.include == 'yes',
+    (Experiment == 'Tha_05' & infected == 'no') | (Experiment == 'NI_0')
+    # Experiment %in% c('Tha_05', 'NI_0'),
+    # CellType != 'Microglia'
+    
+  ) %>% mutate(Infected = factor(Experiment, levels=c('Tha_05','NI_0')))
+    # group_by(Infected, CellType) %>%
+    # mutate( n_cells = n() ) %>%
+    # ungroup( Infected ) %>%
+    # mutate( sample_cells = min(n_cells) ) %>%
+    # group_by( Infected, CellType ) %>%
+    # arrange( sample(row_number()), .by_group=TRUE ) %>%
+    # filter( row_number() <= sample_cells[1] )
+  
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')[!(rownames(GetAssayData(tha.seurat, slot = 'count')) %in% tha.genome), restricted.summary$CBC]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Infected'
+  )
+} -> DE.tha05.noinfected.vs.NI.CoarseCellType
+
+#Save
+saveRDS(object = DE.tha05.noinfected.vs.NI.CoarseCellType, file = paste0(de.data.path, "DE.tha05.noinfected.vs.NI.CoarseCellType.RDS"))
+
+#CellType
+tha.summary_log10 %>%
+{
+  restricted.summary <- filter(tha.summary_log10,
+    seurat.include == 'yes',
+    (Experiment == 'Tha_05' & infected == 'no') | (Experiment == 'NI_0')
+    # Experiment %in% c('Tha_05', 'NI_0'),
+    # CellType != 'Microglia'
+    
+  ) %>% mutate(Infected = factor(Experiment, levels=c('Tha_05','NI_0')))
+    # group_by(Infected, CellType) %>%
+    # mutate( n_cells = n() ) %>%
+    # ungroup( Infected ) %>%
+    # mutate( sample_cells = min(n_cells) ) %>%
+    # group_by( Infected, CellType ) %>%
+    # arrange( sample(row_number()), .by_group=TRUE ) %>%
+    # filter( row_number() <= sample_cells[1] )
+  
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')[!(rownames(GetAssayData(tha.seurat, slot = 'count')) %in% tha.genome), restricted.summary$CBC]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CellType', label_col='Infected'
+  )
+} -> DE.tha05.noinfected.vs.NI.CellType
+
+#Save
+saveRDS(object = DE.tha05.noinfected.vs.NI.CellType, file = paste0(de.data.path, "DE.tha05.noinfected.vs.NI.CellType.RDS"))
+
+
+
+
+#####################
+#2b. Tha_5 (No Infection) vs NI_0 (Bystander)
+#####################
+#CoarseCellType
+tha.summary_log10 %>%
+{
+  restricted.summary <- filter(tha.summary_log10,
+    seurat.include == 'yes',
+    (Experiment == 'Tha_5' & infected == 'no') | (Experiment == 'NI_0')
+    # Experiment %in% c('Tha_05', 'NI_0'),
+    # CellType != 'Microglia'
+    
+  ) %>% mutate(Infected = factor(Experiment, levels=c('Tha_5','NI_0')))
+    # group_by(Infected, CellType) %>%
+    # mutate( n_cells = n() ) %>%
+    # ungroup( Infected ) %>%
+    # mutate( sample_cells = min(n_cells) ) %>%
+    # group_by( Infected, CellType ) %>%
+    # arrange( sample(row_number()), .by_group=TRUE ) %>%
+    # filter( row_number() <= sample_cells[1] )
+  
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')[!(rownames(GetAssayData(tha.seurat, slot = 'count')) %in% tha.genome), restricted.summary$CBC]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Infected'
+  )
+} -> DE.tha5.noinfected.vs.NI.CoarseCellType
+
+#Save
+saveRDS(object = DE.tha5.noinfected.vs.NI.CoarseCellType, file = paste0(de.data.path, "DE.tha5.noinfected.vs.NI.CoarseCellType.RDS"))
+
+
+#CellType
+tha.summary_log10 %>%
+{
+  restricted.summary <- filter(tha.summary_log10,
+    seurat.include == 'yes',
+    (Experiment == 'Tha_5' & infected == 'no') | (Experiment == 'NI_0')
+    # Experiment %in% c('Tha_05', 'NI_0'),
+    # CellType != 'Microglia'
+    
+  ) %>% mutate(Infected = factor(Experiment, levels=c('Tha_5','NI_0')))
+    # group_by(Infected, CellType) %>%
+    # mutate( n_cells = n() ) %>%
+    # ungroup( Infected ) %>%
+    # mutate( sample_cells = min(n_cells) ) %>%
+    # group_by( Infected, CellType ) %>%
+    # arrange( sample(row_number()), .by_group=TRUE ) %>%
+    # filter( row_number() <= sample_cells[1] )
+  
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')[!(rownames(GetAssayData(tha.seurat, slot = 'count')) %in% tha.genome), restricted.summary$CBC]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CellType', label_col='Infected'
+  )
+} -> DE.tha5.noinfected.vs.NI.CellType
+
+#Save
+saveRDS(object = DE.tha5.noinfected.vs.NI.CellType, file = paste0(de.data.path, "DE.tha5.noinfected.vs.NI.CellType.RDS"))
+
+
+
+#####################
+#2c. tha2p4m (No Infection) vs NI_0 (Bystander)
+#####################
+#CoarseCellType
+tha.summary_log10 %>%
+{
+  restricted.summary <- filter(tha.summary_log10,
+    seurat.include == 'yes',
+    (Experiment == '2P4M_05' & infected == 'no') | (Experiment == 'NI_0')
+    # Experiment %in% c('Tha_05', 'NI_0'),
+    # CellType != 'Microglia'
+    
+  ) %>% mutate(Infected = factor(Experiment, levels=c('2P4M_05','NI_0')))
+    # group_by(Infected, CellType) %>%
+    # mutate( n_cells = n() ) %>%
+    # ungroup( Infected ) %>%
+    # mutate( sample_cells = min(n_cells) ) %>%
+    # group_by( Infected, CellType ) %>%
+    # arrange( sample(row_number()), .by_group=TRUE ) %>%
+    # filter( row_number() <= sample_cells[1] )
+  
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')[!(rownames(GetAssayData(tha.seurat, slot = 'count')) %in% tha.genome), restricted.summary$CBC]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Infected'
+  )
+} -> DE.tha2p4m.noinfected.vs.NI.CoarseCellType
+
+#Save
+saveRDS(object = DE.tha2p4m.noinfected.vs.NI.CoarseCellType, file = paste0(de.data.path, "DE.tha2p4m.noinfected.vs.NI.CoarseCellType.RDS"))
+
+
+#CellType
+tha.summary_log10 %>%
+{
+  restricted.summary <- filter(tha.summary_log10,
+    seurat.include == 'yes',
+    (Experiment == '2P4M_05' & infected == 'no') | (Experiment == 'NI_0')
+    # Experiment %in% c('Tha_05', 'NI_0'),
+    # CellType != 'Microglia'
+    
+  ) %>% mutate(Infected = factor(Experiment, levels=c('2P4M_05','NI_0')))
+    # group_by(Infected, CellType) %>%
+    # mutate( n_cells = n() ) %>%
+    # ungroup( Infected ) %>%
+    # mutate( sample_cells = min(n_cells) ) %>%
+    # group_by( Infected, CellType ) %>%
+    # arrange( sample(row_number()), .by_group=TRUE ) %>%
+    # filter( row_number() <= sample_cells[1] )
+  
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')[!(rownames(GetAssayData(tha.seurat, slot = 'count')) %in% tha.genome), restricted.summary$CBC]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CellType', label_col='Infected'
+  )
+} -> DE.tha2p4m.noinfected.vs.NI.CellType
+
+#Save
+saveRDS(object = DE.tha2p4m.noinfected.vs.NI.CellType, file = paste0(de.data.path, "DE.tha2p4m.noinfected.vs.NI.CellType.RDS"))
+
+
+
+#####################
+#2d. tha2p4m (No Infection) vs Tha_05 (No Infection)
+#####################
+#CoarseCellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(tha.summary_log10,
+    seurat.include == 'yes',
+    (Experiment == 'Tha_05' & infected == 'no') | (Experiment == '2P4M_05' & infected == 'no')
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('2P4M_05', 'Tha_05')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha05.vs.tha2p4m.bystander.CoarseCellType
+
+#Save
+saveRDS(object = DE.tha05.vs.tha2p4m.bystander.CoarseCellType, file = paste0(de.data.path, "DE.tha05.vs.tha2p4m.bystander.CoarseCellType.RDS"))
+
+
+
+#CellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(tha.summary_log10,
+    seurat.include == 'yes',
+    (Experiment == 'Tha_05' & infected == 'no') | (Experiment == '2P4M_05' & infected == 'no')
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('2P4M_05', 'Tha_05')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha05.vs.tha2p4m.bystander.CellType
+
+#Save
+saveRDS(object = DE.tha05.vs.tha2p4m.bystander.CellType, file = paste0(de.data.path, "DE.tha05.vs.tha2p4m.bystander.CellType.RDS"))
+
+
+
+
+
+
+
+
+
+#tha2p4m vs tha05 and tha5: 3a and 3b
+#####################
+#3a. tha2p4m.vs.tha05
+#####################
+#CoarseCellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == 'Tha_05' | Experiment == '2P4M_05'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('2P4M_05', 'Tha_05')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha2p4m.vs.tha05.CoarseCellType
+
+#Save
+saveRDS(object = DE.tha2p4m.vs.tha05.CoarseCellType, file = paste0(de.data.path, "DE.tha2p4m.vs.tha05.CoarseCellType.RDS"))
+
+
+
+#CellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == 'Tha_05' | Experiment == '2P4M_05'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('2P4M_05', 'Tha_05')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha2p4m.vs.tha05.CellType
+
+#Save
+saveRDS(object = DE.tha2p4m.vs.tha05.CellType, file = paste0(de.data.path, "DE.tha2p4m.vs.tha05.CellType.RDS"))
+
+
+#####################
+#3b. tha2p4m.vs.tha5
+#####################
+#CoarseCellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == 'Tha_5' | Experiment == '2P4M_05'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('2P4M_05', 'Tha_5')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha2p4m.vs.tha05.CoarseCellType
+
+#Save
+saveRDS(object = DE.tha2p4m.vs.tha05.CoarseCellType, file = paste0(de.data.path, "DE.tha2p4m.vs.tha05.CoarseCellType.RDS"))
+
+
+
+#CellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == 'Tha_5' | Experiment == '2P4M_05'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('2P4M_05', 'Tha_5')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha2p4m.vs.tha05.CellType
+
+#Save
+saveRDS(object = DE.tha2p4m.vs.tha05.CellType, file = paste0(de.data.path, "DE.tha2p4m.vs.tha05.CellType.RDS"))
+
+
+
+
+
+
+
+######################################################################################
+#5. ASTROCYTES 
+#####################################################################################
+#####################
+#Note, the "tha.celltype.infections.summary_astrocytes_CLEAN2" file is generated in Analysis 6b_astrocytes_Analysis
+
+tha.celltype.infections.summary_astrocytes_CLEAN2 <-  readRDS(tha.celltype.infections.summary_astrocytes_CLEAN2.path)
+
+tha.celltype.infections.summary_astrocytes_CLEAN2_log10 <-
+  tha.celltype.infections.summary_astrocytes_CLEAN2 %>%
+  mutate(
+    lViralLoad = log10(ViralLoad),
+    lTotalHost = log10(TotalHost),
+    lTotalViral = log10(TotalViral),
+    lTotalUMIs = log10(TotalUMIs),
+    )
+
+
+
+#5A. tha2p4m.high.vs.low ("High vs Low Astrocytes")
+tha.summary_log10 %>%
+  filter(CoarseCellType == 'Astrocyte', Experiment == '2P4M_05') %>%
+  ggplot(aes(lViralLoad))+
+  geom_histogram(bins=80)
+
+tha.celltype.infections.summary_astrocytes_CLEAN2_log10 %>%
+{
+  restricted.summary <- filter(.,
+    seurat.include == 'yes',
+    Experiment == '2P4M_05',
+    CoarseCellType == 'Astrocyte'
+    
+  ) %>% mutate(Experiment = factor(lViralLoad > -0.8, levels=c(TRUE, FALSE))) #note, Karl's code changes the Experiment variable here based on the lViralLod Thresholding
+  
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')[!(rownames(GetAssayData(tha.seurat, slot = 'count')) %in% tha.genome), restricted.summary$CBC]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha2p4m.high.vs.low.Astrocyte
+
+#Save
+saveRDS(object = DE.tha2p4m.high.vs.low.Astrocyte, file = paste0(de.data.path, "DE.tha2p4m.high.vs.low.Astrocyte.RDS"))
+
+
+#####################
+#5B Cluster 0 and Cluster 2 Astrocytes
+#####################
+
+tha.celltype.infections.summary_astrocytes_CLEAN2_log10 %>%
+{
+  restricted.summary <- filter(.,
+    seurat.include == 'yes',
+    #Experiment == '2P4M_05',
+    #CoarseCellType == 'Astrocyte',
+    ident %in% c("0", "2")
+    ) %>% 
+    mutate(Experiment = factor(lViralLoad > -0.8, levels=c(TRUE, FALSE))) %>%
+    mutate(AstroState = case_when(ident == "0" ~ "AstroLow", ident == "2" ~ "AstroHigh", TRUE ~ NA))
+  
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')[!(rownames(GetAssayData(tha.seurat, slot = 'count')) %in% tha.genome), restricted.summary$CBC]
+  
+  # Libra::run_de(
+  #   restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+  #   replicate_col = 'Tube', cell_type_col = 'AstroState', label_col='Experiment',
+  #   de_method="DESeq2", de_type="LRT"
+  # )
+  
+    Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='AstroState',
+    de_method="DESeq2", de_type="LRT"
+  )
+    
+} -> DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2
+
+#Save
+saveRDS(object = DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2, file = paste0(de.data.path, "DE.AstroLow_Cluster0.vs.AstroHigh_Cluster2.RDS"))
+
+
+#####################
+#5C Tha2P4M Cluster 0 and Cluster 2 Astrocytes
+#####################
+#Note, the "tha.celltype.infections.summary_astrocytes_CLEAN2" file is generated in Analysis 6b_astrocytes_Analysis
+tha.celltype.infections.summary_astrocytes_CLEAN2_log10 %>%
+{
+  restricted.summary <- filter(.,
+    seurat.include == 'yes',
+    Experiment == '2P4M_05',
+    #CoarseCellType == 'Astrocyte',
+    ident %in% c("0", "2")
+    ) %>% 
+    mutate(Experiment = factor(lViralLoad > -0.8, levels=c(TRUE, FALSE))) %>%
+    mutate(AstroState = case_when(ident == "0" ~ "AstroLow", ident == "2" ~ "AstroHigh", TRUE ~ NA))
+  
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')[!(rownames(GetAssayData(tha.seurat, slot = 'count')) %in% tha.genome), restricted.summary$CBC]
+  
+    Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.summary, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='AstroState',
+    de_method="DESeq2", de_type="LRT"
+  )
+    
+} ->  DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2
+
+#Save
+saveRDS(object = DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2, file = paste0(de.data.path, "DE.tha2P4M.AstroLow_Cluster0.vs.AstroHigh_Cluster2.RDS"))
+
+
+#####################
+#6. tha05.vs.tha5
+#####################
+#CoarseCellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == 'Tha_05' | Experiment == 'Tha_5',
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('Tha_5', 'Tha_05')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha05.vs.tha5.CoarseCellType
+
+
+#Save
+saveRDS(object = DE.tha05.vs.tha5.CoarseCellType, file = paste0(de.data.path, "DE.tha05.vs.tha5.CoarseCellType.RDS"))
+
+
+
+#CellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(.,
+    seurat.include == 'yes',
+    Experiment == 'Tha_05' | Experiment == 'Tha_5',
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('Tha_5', 'Tha_05')))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha05.vs.tha5.CellType
+
+
+#Save
+saveRDS(object = DE.tha05.vs.tha5.CellType, file = paste0(de.data.path, "DE.tha05.vs.tha5.CellType.RDS"))
+
+
+#####################
+#7. Microglia
+#####################
+
+
+
+
+
+#####################
+#8. tha05.vs.NI.bystander and tha05.vs.tha2p4m.bystander ("Bystander")
+#####################
+#CoarseCellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(tha.summary_log10,
+    seurat.include == 'yes',
+    (Experiment == 'Tha_05' & infected == 'no') | Experiment == 'NI_0'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('Tha_05', 'NI_0')))
+  
+  print(table(restricted.cells$CellType, restricted.cells$Experiment))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CoarseCellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha05.vs.NI.bystander.CoarseCellType
+
+#Save
+saveRDS(object = DE.tha05.vs.NI.bystander.CoarseCellType, file = paste0(de.data.path, "DE.tha05.vs.NI.bystander.CoarseCellType.RDS"))
+
+
+
+#CellType
+tha.summary_log10 %>%
+{
+  restricted.cells <- filter(tha.summary_log10,
+    seurat.include == 'yes',
+    (Experiment == 'Tha_05' & infected == 'no') | Experiment == 'NI_0'
+  ) %>% mutate(Experiment = factor(Experiment, levels=c('Tha_05', 'NI_0')))
+  
+  print(table(restricted.cells$CellType, restricted.cells$Experiment))
+  
+  restricted.genes <- GetAssay(tha.seurat, 'RNA')@meta.features %>%
+    filter(log(vst.mean) > -2.7) %>% rownames()
+  # restricted.genes <- restricted.genes[ !(restricted.genes %in% tha.genome) ]
+
+  restricted.dge <- GetAssayData(tha.seurat, slot = 'count')
+  restricted.dge <- restricted.dge[
+    rownames(restricted.dge) %in% restricted.genes ,
+    colnames(restricted.dge) %in% restricted.cells$CBC
+    ]
+  
+  Libra::run_de(
+    restricted.dge, meta = column_to_rownames(restricted.cells, var='CBC'),
+    replicate_col = 'Tube', cell_type_col = 'CellType', label_col='Experiment',
+    de_method="DESeq2", de_type="LRT"
+  )
+} -> DE.tha05.vs.NI.bystander.CellType
+
+#Save
+saveRDS(object = DE.tha05.vs.NI.bystander.CellType, file = paste0(de.data.path, "DE.tha05.vs.NI.bystander.CellType.RDS"))
+
+
+
+
+
+```
+
+###GSEA
+```{r GSEA Analysis, echo=FALSE}
+
+###DE.tha2p4m.vs.tha05.CoarseCellType
+#Neurons
+genes_to_keep <- tha.seurat@assays$RNA@meta.features %>%
+  filter(vst.mean > 0.05) %>% rownames()
+
+temp <- filter(DE.tha2p4m.vs.tha05.CoarseCellType, gene %in% genes_to_keep,
+  cell_type == 'Neuron') %>%
+  mutate(stat = -log10(p_val_adj) * avg_logFC) %>%
+  filter(!is.na(stat)) %>%
+  arrange(desc(stat))
+
+tha2p4m.vs.tha05.CoarseCellType.n        <- temp$stat
+names(tha2p4m.vs.tha05.CoarseCellType.n) <- temp$gene
+
+GSEA.tha2p4m.vs.tha05.CoarseCellType.n <- clusterProfiler::gseGO(
+  tha2p4m.vs.tha05.CoarseCellType.n,
+  ont = 'BP',
+  OrgDb = 'org.Hs.eg.db',
+  keyType = 'SYMBOL',
+  eps=1e-300
+)
+
+#Save
+saveRDS(object = GSEA.tha2p4m.vs.tha05.CoarseCellType.n, file = paste0(de.data.path, "gsea/GSEA.tha2p4m.vs.tha05.CoarseCellType.n.RDS"))
+
+
+#Astrocytes
+temp <- filter(DE.tha2p4m.vs.tha05.CoarseCellType, gene %in% genes_to_keep,
+  cell_type == 'Astrocyte') %>%
+  mutate(stat = -log10(p_val_adj) * avg_logFC) %>%
+  filter(!is.na(stat)) %>%
+  arrange(desc(stat))
+
+tha2p4m.vs.tha05.CoarseCellType.a <- temp$stat
+names(tha2p4m.vs.tha05.CoarseCellType.a) <- temp$gene
+
+GSEA.tha2p4m.vs.tha05.a <- clusterProfiler::gseGO(
+  tha2p4m.vs.tha05.CoarseCellType.a,
+  ont = 'BP',
+  OrgDb = 'org.Hs.eg.db',
+  keyType = 'SYMBOL',
+  eps=1e-300
+)
+
+#Save
+saveRDS(object = GSEA.tha2p4m.vs.tha05.a, file = paste0(de.data.path, "gsea/GSEA.tha2p4m.vs.tha05.CoarseCellType.a.RDS"))
+```
